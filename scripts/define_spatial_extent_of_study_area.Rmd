@@ -1,0 +1,57 @@
+---
+title: "Define Spatial Extent of Study Area"
+author: "steppe"
+date: "3/3/2022"
+output: pdf_document
+---
+
+
+```{r}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(rgdal) # many spatial tools. 
+```
+
+
+# Table of Contents
+
+Methods will be broadly be defined as four main components. 
+
+1) Data Cleaning, and Processing
+  **+ Part 1: Define the study extent.**
+  + Part 2: Collect, and clip input Independent variables to this extent. 
+  + Part 3: Remove predictor variables which exhibit collinearity for the linear regressions. 
+  + Part 4: Assemble Presence Records for the extent, formatting BLM data
+  
+## 1.1 Part 1: Define the Spatial Study Extent
+
+First we will generate a spatial extent which bounds our study area. While we have used a square box drawn around the Southern Rockies in the past, we will shift to using the EPA's Omernik Level 3 Ecoregions (OML3E). I suspect this will be a better approach for other researchers to help delineate their own study areas. We will offset the OML3E by a 100 km buffer, increasing our area of analysis. This has been shown to help SDM's build better forecasts by identifying broad scale climate factors (VanDerWal et al. 2009). While the cited paper uses an area of 200 km as their best fit across the species modeled, as the Southern Rockies represent an area with vastly different climate conditions than the adjacent areas we will relax this distance. 
+
+VanDerWal, J., Shoo, L.P., Graham, C., Williams, S.E. 2009. "Selecting pseudo-absence data for presence-only distribution modeling: how far should you stray from what you know?" Ecological Modelling 220: 589-594.
+
+```{r Generate the Spatial extent of the study, message=F, warning=F, echo = F}
+set.seed(12)
+
+ecoregions <- sf::read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>% 
+  dplyr::select(NA_L3CODE, NA_L3NAME) %>% 
+  filter(NA_L3NAME == 'Southern Rockies') %>% 
+  st_union() %>% 
+  st_transform(5070)
+
+buffer_distance <- units::as_units(50, "kilometers") # want to buffer the edges...
+ecoregion_bound <- st_convex_hull(ecoregions)
+ecoregion_bound <- st_buffer(ecoregion_bound, dist = buffer_distance) %>% 
+  st_transform(5070) %>% 
+  st_as_sf() %>% 
+  mutate(data = "1")
+
+ggplot(ecoregion_bound) +
+  geom_sf() +
+  geom_sf(data = ecoregions, fill = "cyan") +
+  theme_bw()
+
+ecoregion_bound <- as_Spatial(ecoregion_bound)
+rm(buffer_distance)
+
+writeOGR(ecoregion_bound, dsn = here('data/processed/'), layer = "SoRo_ecoregion_bound", driver = "ESRI Shapefile")
+```

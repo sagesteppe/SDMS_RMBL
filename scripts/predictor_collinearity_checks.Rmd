@@ -1,0 +1,228 @@
+---
+title: "predictor collinearity checks"
+author: "steppe"
+date: "3/1/2022"
+output: pdf_document
+---
+
+The Western Plant Predictors Raster Stack has 32 layers. While nearly all layers will be retained for Machine Learning, only a subset of layers which do not exhibit significant auto-correlation will be retained for models generated via Random Forests and Boosted Regression Trees. Given the smaller spatial extent of my analysis I will remove a set of layers *(1. EPA level-3 ecoregions for North America, 2. TNC freshwater ecoregions for North America, 3. Percent Urban / developed land cover from EarthEnv, 4 Soil world class, 5 Scaled X-coordinate, 6 Scaled Y-coordinate)*, which do not represent thematic content of interest(# 2,3,5,6), are of an inappropriate resolution (# 1), considered redundant (# 4), or will not be included in the models (# 5,6). Subsequent to the removal of these layers, correlation coefficients were calculated using the the USDM Package with settings: theta = 10 (vifstep), theta = 0.7 (vifcor), with 10,000 observations. All variables above these values for either test were excluded. 
+
+Following tests for multi-collinearity feature reduction based upon the variance of factors was undertaken to remove variables which might have predictive power across the normal range of extent of this dataset, but lack variation within our study area. 
+
+```{r}
+sessionInfo()
+```
+
+1) Data Cleaning, and Processing
+  + Part 1: Define the study extent.
+  + Part 2: Collect, and clip input Independent variables to this extent. 
+  **+ Part 3: Remove predictor variables which exhibit collinearity for the linear regressions. **
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+library(usdm)
+```
+
+
+1. **'PCL_MAN'** - Mean annual cloudiness from MODIS (Wilson et al. 2013)
+2. **'PCL_SE1'** - Cloudiness seasonality component 1 from MODIS (Wilson et al. 2013)
+3. **'PCL_SE2'** - Cloudiness seasonality component 2 from MODIS (Wilson et al. 2013)
+4. **'PCL_SE3'** - Cloudiness seasonality component 3 from MODIS (Wilson et al. 2013)
+5. **'PCM_BFP'** - Beginning of the frost-free period from ClimateNA (Wang et al., delta downscaled)
+6. **'PCM_CMD'** - Climatic moisture deficit from ClimateNA (Wang et al., delta downscaled)
+7. **'PCM_DD5'** - Degree-days above 5C from ClimateNA (Wang et al., delta downscaled)
+8. **'PCM_MAP'** - Mean annual precipitation from ClimateNA (Wang et al., delta downscaled)
+9. **'PCM_PAS'** - Mean annual precipitation as snow from ClimateNA (Wang et al., delta downscaled)
+10. **'PCM_TD'** - Temperature seasonality from ClimateNA (Wang et al., delta downscaled)
+11. **'PCT_ECO'** - EPA level-3 ecoregions for North America       **# REMOVE**
+12. **'PCT_EFW'** - TNC freshwater ecoregions for North America    **# REMOVE**
+13. **'PLC_HRB'** - 2015 Percent Grass / Herbaceous cover from MODIS (MOD44B)
+14. **'PLC_TRE'** - 2015 Percent Tree cover from Landsat 7 / 8 (GLCF)
+15. **'PLC_URB'** - Percent Urban / developed land cover from EarthEnv  **# REMOVE**
+16. **'PSL_BDR'** - Soil probability of bedrock (R Horizon) in profile from SoilGrids
+17. **'PSL_CAR'** - Soil organic carbon (Tonnes / ha) from SoilGrids 
+18. **'PSL_PHO'** - Surface soil pH in H2O from SoilGrids
+19. **'PSL_SND'** - Surface soil percent sand from SoilGrids
+20. **'PSL_TUS'** - Soil USDA class.
+21. **'PSL_TWL'** - Soil world class.   **# REMOVE**
+22. **'PTP_ELV'** - Topographic elevation from EarthEnv DEM.
+23. **'PTP_RLV'** - Topographic elevation relative to 900m and 5km moving window.
+24. **'PTP_SLP'** - Topographic percent slope from EarthEnv DEM 
+25. **'PTP_WET'** - Topographic wetness index from Earth EnvDEM computed with GRASS GIS
+26. **'PTP_ASP'** - Topographic aspect from EarthEnv DEM
+27. **'PTP_SOL'** - Annual potential solar radiation computed with GRASS GIS r.sun.
+28. **'PCL_MRA'** - Estimated actual (with-cloud) solar radiation.
+29. **'PSW_DIS'** - Log-transformed distance to surface water from Global Surface Water Explorer
+30. **'PSW_OCC'** - Percent surface water from Global Surface Water Explorer 
+31. **'PCO_XSC'** - Scaled X-coordinate. **# REMOVE**
+32. **'PCO_YSC'** - Scaled Y-coordinate.**# REMOVE**
+
+```{r Import & Crop WPDPV, message = F}
+WPDPV <- raster::stack("/hdd/Geospatial_data/Western_Plant_Predictors/SoRo_wppr_vers_two.tif")
+
+names_vec <- c('PCL_MAN','PCL_SE1','PCL_SE2','PCL_SE3','PCM_BFP','PCM_CMD',
+                  'PCM_DD5', 'PCM_MAP','PCM_PAS','PCM_TD','PCT_ECO','PCT_EFW',
+                  'PLC_HRB', 'PLC_TRE', 'PLC_URB', 'PSL_BDR', 'PSL_CAR', 
+                  'PSL_PHO', 'PSL_SND','PSL_TUS','PSL_TWL','PTP_ELV','PTP_RLV',
+                  'PTP_SLP','PTP_WET','PTP_ASP','PTP_SOL', 'PCL_MRA','PSW_DIS',
+                  'PSW_OCC','PCO_XSC', 'PCO_YSC')
+
+names(WPDPV) <- names_vec
+
+WPDPV <- WPDPV[[c(1:10, # remove epa level-3 and freshwater ecoregions
+                  13:14, # remove percent urban
+                  16:20, # remove soil world class
+                  22:30) # remove x and y coordinates. 
+                ]]
+```
+
+## 1.3: Check for predictor variables which exhibit collinearity for the linear regressions.
+
+We will use a Variance Inflation Factor to determine how much....
+
+```{r Check for collinearity amongst variables, eval = F}
+vifstep_results <- usdm::vifstep(WPDPV, th = 10, maxobservations = 12500) 
+# default theta, double the max number of observations.
+vifcor_results <- usdm::vifcor(WPDPV, th=0.7, maxobservations = 12500) 
+# default theta, double the max number of observations. 
+
+# pull out the VIF values for the retained layers
+vifs_res <- vifstep_results@results
+vcor_res <- vifcor_results@results
+
+# pull out the correlation matrix for the retained layers
+vifs_res_matrix <- as.data.frame(slot(vifstep_results, "corMatrix")) %>% 
+  rownames_to_column()
+vcor_res_matrix <- as.data.frame(slot(vifcor_results, "corMatrix")) %>% 
+  rownames_to_column()
+
+# write out all data to csv. 
+write.csv(vifs_res_matrix, here('data/processed/VIFstep_heatmap.csv'), row.names = F)
+write.csv(vcor_res_matrix, here('data/processed/VIFcor_heatmap.csv'), row.names = F)
+
+write.csv(vifs_res, here('data/processed/VIFstep_keep.csv'), row.names = F)
+write.csv(vcor_res, here('data/processed/VIFcor_keep.csv'), row.names = F)
+
+# remove these data. 
+rm(vifstep_results, vifcor_results, 
+   vifs_res, vcor_res, 
+   vifs_res_matrix, vcor_res_matrix)
+```
+
+```{r Graph collinearity amongst variables, echo = F}
+
+vifs_res_matrix <- read.csv(here('data/processed/VIFstep_heatmap.csv')) %>% 
+  column_to_rownames('rowname') %>% 
+  as.matrix()
+vcor_res_matrix <- read.csv(here('data/processed/VIFcor_heatmap.csv')) %>% 
+  column_to_rownames('rowname') %>% 
+  as.matrix()
+
+pheatmap::pheatmap(vifs_res_matrix, 
+                   treeheight_row = 0, 
+                   treeheight_col = 0, 
+                   cutree_rows = 4, 
+                   main= "Results of VIF step on all 26 Variables; 19 remain", 
+                   border_color = 'black')
+
+pheatmap::pheatmap(vcor_res_matrix, 
+                   treeheight_row = 0, 
+                   treeheight_col = 0, 
+                   cutree_rows = 4, 
+                   main= "Results of VIF cor on all 26 Variables; 17 remain", 
+                   border_color = 'black')
+
+
+rm(vifs_res_matrix, vcor_res_matrix)
+```
+
+```{r ascertain which variables to keep}
+WPDPV <- raster::stack("/hdd/Geospatial_data/Western_Plant_Predictors/SoRo_wppr_vers_two.tif")
+names(WPDPV) <- names_vec
+
+vifs_res <- read.csv(here('data/processed/VIFstep_keep.csv'))
+vcor_res <- read.csv(here('data/processed/VIFcor_keep.csv'))
+
+concensus <- inner_join(vcor_res, vifs_res, by = 'Variables') %>% 
+  pull(Variables)
+
+target <- match(concensus, names_vec)
+WPDPV2 <- WPDPV[[(target)]]
+print(target)
+
+rm(vifs_res, vcor_res, names_vec, concensus, target)
+```
+
+Naimi, B., Hamm, N.A.S., Groen, T.A., Skidmore, A.K., and Toxopeus, A.G. 2014. Where is positional uncertainty a problem for species distribution modelling?, Ecography 37 (2): 191-203.
+
+## 1.3B: Check for Variance amongst Layers.
+
+These layers are selected for features across the entirety of the West. Accordingly in some areas inclusion of some layers could be redundant. 
+
+```{r Check for Variance amongst Layers, eval = F}
+
+results <- data.frame(matrix(ncol = nlayers(WPDPV2), nrow=9))
+
+for (i in 1:nlayers(WPDPV2)){
+  
+  var_val <- as.data.frame(setNames(cellStats(WPDPV2[[i]], var, na.rm = T), 'variance'))
+  sd_val <- as.data.frame(setNames(cellStats(WPDPV2[[i]], sd, na.rm = T), 'st.dev'))
+  mean_val <- cellStats(WPDPV2[[i]], summary, na.rm = T)
+  
+  mean_val1 <- names(mean_val)
+  mean_val2 <- as.numeric(mean_val)
+  mean_val3 <- setNames(mean_val2, mean_val1)
+  mean_val4 <- as.data.frame(mean_val3)
+
+  layername <- names(WPDPV2[[i]])
+
+  dfs <- c('mean_val4', 'var_val', 'sd_val')
+  for(df in dfs)
+    assign(df, setNames(get(df),  layername))
+  
+  temp_results <- rbind(mean_val4, var_val, sd_val)
+  results[,i] <- temp_results
+}
+
+names(results) <- names(WPDPV2)
+rownames(results) <- rownames(temp_results)
+results <- results %>% rownames_to_column()
+write.csv(results, here('data/processed/Summary_statistics_WPDPV.csv'), row.names=FALSE)
+
+rm(var_val, sd_val, mean_val1, mean_val2, mean_val3, mean_val4, layername, temp_results, df, dfs, i, mean_val, results)
+```
+
+```{r Visualize variance amongst layers}
+
+sum_stats <- read.csv(here("data/processed/Summary_statistics_WPDPV.csv"))
+colnames(sum_stats)[1] <- 'Statistic'
+
+sum_stats <- sum_stats %>%
+ pivot_longer(cols = -Statistic, names_to = "Variable",values_to = "Value") %>% 
+  filter(Statistic!= "NA's") %>%  # these are the NA's from the raster mask. 
+  #filter(Variable %in% layers) %>% 
+  mutate(Val_scaled = scales::rescale(Value, to = c(0, 1)))
+
+sum_stats %>% filter(Statistic == 'variance') %>%
+  separate(Variable, into = 'Variable_Group', sep = '_', remove = F, extra = 'drop') %>% 
+  ggplot(., aes(x = reorder(Variable,-Val_scaled), y = Val_scaled, 
+                fill = Variable_Group)) + # color = variable_Group
+  geom_bar(stat ="identity") +
+  scale_fill_discrete(name = "Variable Group", 
+                      labels = c("Cloudiness", "Climate", "Vegetation Cover",
+                                 "Soil", "Standing Water", "Topography")) +
+  scale_y_sqrt() +
+  coord_flip() +
+  theme_minimal() +
+  labs(y = 'Variance of Scaled Values (sqare root transform)', x = 'Variable',
+       title = "Variance of 16 Predictors from Raster Stack") +
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.position = c(0.8, 0.7))
+
+```
+
+While there is a drastic range in the variance of these predictors, I do not remove features here such as Soil Class, which I anticipate to have very high correlations with occurrence records for building models. 
+
