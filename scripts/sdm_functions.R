@@ -207,14 +207,15 @@ true_absence_ML <- function(x){ # for collecting true absence records from BLM l
   
   taxon <- x %>% distinct(binomial) %>%  pull(binomial)
   taxon <- taxon[1]
-  TA_req <- round(x$no.record[1] * prop_blm, 0) # how many true absences needed?
+  TA_req <- round(x$no_record[1] * prop_blm, 0) # how many true absences needed?
   presence_PK <- x %>% pull(PlotKey) # which plots can absences not occur in because a presence is there?
   
   AIM_absence <- AIM_points %>% # remove plots with an occurrence of the taxon. 
-    filter(!PlotKey %in% presence_PK) %>% # make sure the plot does not have a presence record
-    dplyr::sample_n(TA_req, replace = F) %>%   # sample this many plots
+    filter(!PlotKey %in% presence_PK)  %>% # make sure the plot does not have a presence record
     mutate('binomial' = taxon) %>% 
-    mutate(no.record = TA_req)
+    mutate(no_record = TA_req)
+    
+  AIM_absence <- AIM_absence[sample(1:nrow(AIM_absence), size =  TA_req, replace = F),]
   
   out <- rbind(x, AIM_absence)
   return(out)
@@ -234,9 +235,10 @@ true_absence_REG <- function(x){ # for collecting true absence records from BLM 
   
   AIM_absence <- AIM_points %>% 
     filter(!PlotKey %in% presence_PK) %>% 
-    dplyr::sample_n(TA_req, replace = F) %>% 
     mutate('binomial' = taxon) %>% 
-    mutate(no.record = TA_req) 
+    mutate(no_record = TA_req) 
+  
+  AIM_absence <- AIM_absence[sample(1:nrow(AIM_absence), size =  TA_req, replace = F),]
   
   out <- rbind(x, AIM_absence) 
   return(out) 
@@ -255,14 +257,16 @@ random_PA_spatial <- function(x){
   
   x_buf <- st_buffer(x, 9000)
   blm_cp_sUB <- st_erase(x_buf, blm_cp_s)
-  
-  pseudo_abs <- st_sample(blm_cp_sUB, size = PA_req, type = 'random') %>% 
+
+  pseudo_abs <- st_sample(blm_cp_sUB, size = PA_req, type = 'random', by_polygon = F) %>% 
     st_as_sf() %>% 
     mutate(occurrence = 0) %>% 
     mutate(binomial = taxon) %>% 
     mutate(PlotKey = NA) %>% 
     rename('geometry' = x) %>% 
-    mutate(no.record = nrow(.))
+    mutate(no_record = nrow(.))
+  
+  x <- st_centroid(x)
   
   out <- rbind(x, pseudo_abs)
   
@@ -277,7 +281,7 @@ mean_values <- function(x){
   
   binomial <- x %>% pull(binomial)
   binomial <- binomial[1]
-  out <- raster::extract(bioclim.ml.scaled, x, fun = mean, method = "simple")
+  out <- raster::extract(WPDPV_rs, x, fun = mean, method = "simple")
   out1 <- as.data.frame(t(apply(out, 2, mean)))
   out2 <- as.data.frame(t(apply(out, 2, sd)))
   out3 <- as.data.frame(t(apply(out, 2, se)))
@@ -293,6 +297,71 @@ mean_values <- function(x){
   
 }
 
+
+
+
+##############
+# percentile #
+##############
+se <- function(x) sqrt(var(x)/length(x)) 
+
+percentile <- function(x){
+  
+  my_quantile <- function(x, probs) {
+    tibble(x = quantile(x, probs, na.rm = T))
+  }
+  #Input a dataframe of scaled and centered variables. 
+  
+  x1 <- st_drop_geometry(x)
+  scaled_matrix <- as.matrix(x1[,5:20])
+  maxs <- apply(scaled_matrix, 2, max)
+  mins <- apply(scaled_matrix, 2, min)
+  scaled_matrix <- scale(scaled_matrix, center = mins, scale = maxs - mins)
+  
+  # split into two matrices   - PRESENCE records generate target values
+  #                           - BLM Absences are withheld from analysis
+  #                           - The random absences are evaluated against PRESENCE
+  
+  
+  # Presence Matrix 
+  presence_matrix <- scaled_matrix[which(x$occurrence == 1), ] 
+  percentiles <- as_tibble(presence_matrix) %>% 
+    summarise(across(.cols = everything(), ~my_quantile(.x, probs = c(0.4, 0.6)))) %>% 
+    as.matrix()
+  
+  lower <- as.numeric(percentiles[1,])
+  higher <- as.character(percentiles[2,])
+  
+  # Absence matrix
+  absence_matrix <- matrix(scaled_matrix[which(x$occurrence == 0 & is.na(x$PlotKey) ), ]
+                           , byrow = T, ncol = 16)
+  
+  m1  <- absence_matrix
+  m1[] <- c(0, 1)[(m1 > lower & m1 < higher) +1]
+  m1 <- matrix(m1, byrow = T, ncol = 16)
+
+  selections <- data.frame(twenty = rowSums(m1, na.rm = T))
+  absence_matrix <- data.frame(absence_matrix)
+  
+  absence_matrix <- cbind(absence_matrix, selections)  %>% 
+    mutate(ID  = row_number()) %>% 
+    drop_na(1:8) %>% 
+    slice_min(twenty, prop = 0.8, with_ties = F)
+  
+  # filter to the appropriate records
+  
+  base <- nrow(x) - nrow(m1)
+  absence_positions <- absence_matrix %>% 
+    mutate(ID  = ID + base) %>% 
+    pull(ID)
+  
+  sub_sequence <- c(seq(from = 1, to = base, by = 1), absence_positions)
+  
+  results <- x[sub_sequence,]
+
+ return(results)
+  
+}
 
 
 #############
@@ -331,48 +400,115 @@ envi_dist <- function(x){
 
 Linear_SDM <- function(x){
   
-  binomial <- x@data['binomial'][1]
+  binomial <-  x %>% pull(binomial)
+  binomial <- binomial[1]
+  taxon <- x %>% 
+    mutate(occurrence = case_when(occurrence == 2 | occurrence == 1 ~ 1,
+                                  occurrence == 0 ~ 0)) %>% 
+    dplyr::select(occurrence) %>% 
+    as(., "Spatial")
+  taxon = spTransform(taxon,geo_proj)
+  
   
   sdm_data_obj <- sdmData(formula=occurrence~., 
-                          train = x, 
-                          predictors = bioclim)
-  sdm_data_obj_1 <- sdm(formula = occurrence~., 
-                        data = sdm_data_obj, 
-                        methods = c('glm','gam'), replication='sub', test.percent=90, n=2)
-  ensemb <- ensemble(sdm_data_obj_1, bioclim, 
-                     setting = list(method = "weighted", stat = 'tss', opt = 2), 
-                     filename = paste0(binomial, "_","lm", Sys.time(),'.tif'))
+                          train = taxon, 
+                          predictors = WPDPV2)
+  sdm_model <- sdm(formula = occurrence~., 
+                   data = sdm_data_obj, 
+                   methods = c('glm','gam'), replication='sub', test.percent=30, n=3)
+  
+  fname <- paste0(here(), '/results/maps/', binomial, "_glm_", Sys.time(),'.tif')
+  fname <- gsub(' ', '_', fname)
+  sdm_ensemble_prediction <- sdm::ensemble(sdm_model, WPDPV2, 
+                                           setting = list(method = "weighted", stat = 'tss', opt = 2), 
+                                           filename = fname)
+  
+  fname <- paste0(here(), '/results/stats/', binomial, "_glm_", Sys.time(),'.csv')
+  fname <- gsub(' ', '_', fname)
+  evaluation <- getEvaluation(sdm_model, stat=c('TSS','Kappa','AUC'), wtest=c('training','test'), opt = 1)
+  write.csv(evaluation, file = fname)
   
   # Predictor variables importance
-  
-  PrVar1 <- cbind("GLM_1","training",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@varImportance[["training"]]@varImportance)
-  #PrVar2 <- cbind("GLM_2","training",sdm_data_obj_1@models[["occurrence"]][["glm"]][["2"]]@varImportance[["training"]]@varImportance)
-  PrVar3 <- cbind("GAM_1","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["3"]]@varImportance[["training"]]@varImportance)
-  #PrVar4 <- cbind("GAM_2","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["4"]]@varImportance[["training"]]@varImportance)
-  
-  PrVar5 <- cbind("GLM_1","test", sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@varImportance[["test.dep"]]@varImportance)
-  #PrVar6 <- cbind("GLM_2","test", sdm_data_obj_1@models[["occurrence"]][["glm"]][["2"]]@varImportance[["test.dep"]]@varImportance)
-  PrVar7 <- cbind("GAM_3","test", sdm_data_obj_1@models[["occurrence"]][["gam"]][["3"]]@varImportance[["test.dep"]]@varImportance)
-  #PrVar8 <- cbind("GAM_4","test", sdm_data_obj_1@models[["occurrence"]][["gam"]][["4"]]@varImportance[["test.dep"]]@varImportance)
-  
-  Mt_train1 <- cbind("GLM_1","training",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["training"]]@threshold_based)
-  Mt_train2 <- cbind("GAM_1","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["training"]]@threshold_based)
-  Mt_test1  <- cbind("GLM_1", "test",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["test.dep"]]@threshold_based)
-  Mt_test2  <- cbind("GAM_1","test",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["test.dep"]]@threshold_based)
-  
-  
-  GLM_stats1 <- as.data.frame(cbind("Prev.",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["training"]]@statistics[["Prevalence"]]))
-  GLM_stats2 <- as.data.frame(cbind("AUC",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["training"]]@statistics[["AUC"]]))
-  GLM_stats3 <- as.data.frame(cbind("COR",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["training"]]@statistics[["COR"]][["cor"]]))
-  GLM_stats4 <- as.data.frame(cbind("p.val.",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["training"]]@statistics[["COR"]][["p.value"]]))
-  GLM_stats5 <- as.data.frame(cbind("dev",sdm_data_obj_1@models[["occurrence"]][["glm"]][["1"]]@evaluation[["training"]]@statistics[["Deviance"]]))
-  GLM_stats <- rbind("GLM_1", "training", GLM_stats1, GLM_stats2 ,GLM_stats3, GLM_stats4,GLM_stats5)
-  
-  GAM_stats1 <- cbind("Prev.","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["training"]]@statistics[["Prevalence"]])
-  GAM_stats2 <- cbind("AUC","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["training"]]@statistics[["AUC"]])
-  GAM_stats3 <- cbind("COR","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["training"]]@statistics[["COR"]][["cor"]])
-  GAM_stats4 <- cbind("p.val.","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["training"]]@statistics[["COR"]][["p.value"]])
-  GAM_stats5 <- cbind("dev","training",sdm_data_obj_1@models[["occurrence"]][["gam"]][["2"]]@evaluation[["training"]]@statistics[["Deviance"]])
-  GAM_stats <- rbind("GAM_1", "training", GAM_stats1, GAM_stats2 ,GAM_stats3, GAM_stats4,GAM_stats5)
-  
 }
+
+
+
+############################
+###    Variance Calcs    ###
+############################
+
+variance_calcs  <- function(x){
+  
+  my_quantile <- function(x, probs) {
+    tibble(x = quantile(x, probs, na.rm = T))
+  }
+  se <- function(x) sqrt(var(x)/length(x)) 
+  not_all_na <- function(x) any(!is.na(x))
+  
+  #Input a dataframe of scaled and centered variables. 
+  
+  binomial <- x$binomial[1]
+  x1 <- sf::st_drop_geometry(x)
+  scaled_matrix <- as.matrix(x1[,5:20])
+  maxs <- apply(scaled_matrix, 2, max)
+  mins <- apply(scaled_matrix, 2, min)
+  scaled_matrix <- scale(scaled_matrix, center = mins, scale = maxs - mins)
+  
+  # Select only presence records and then calculate 
+  # measures of dispersion for them
+  presence_matrix <- scaled_matrix[which(x$occurrence == 1), ] 
+  
+  standard_err <- as_tibble(presence_matrix) %>% 
+    summarise(across(.cols = everything(), ~ se(.x))) %>% 
+    as.matrix()
+
+  variance <- as_tibble(presence_matrix) %>% 
+    summarise(across(.cols = everything(), ~ var(.x))) %>% 
+    as.matrix()
+  
+  percentiles <- as_tibble(presence_matrix) %>% 
+    summarise(across(.cols = everything(), 
+                     ~my_quantile(.x, probs = c(0.25, 0.75)))) %>% 
+    mutate(across(.cols = everything(), 
+                  ~ lag(.x))) %>% 
+    as.matrix() 
+  
+  percentiles <- percentiles[2,]
+
+  # prettify results
+  results <- rbind(standard_err, variance, percentiles)
+  length_col <- as.data.frame(results) %>% select(where(not_all_na))
+  length_col <- ncol(length_col)
+  results <- rowSums(results, na.rm = T)/length_col
+  results <- cbind(binomial, results)
+  results <- cbind(t(data.frame('SE','VAR','IQR')), results)
+  row.names(results) <- NULL
+  colnames(results) <- c('Dispersion', 'binomial', 'Value')
+  results <- as.data.frame(results) %>% mutate(across(.cols = 3:ncol(results), as.numeric))
+  
+  return(results)
+}
+
+
+
+#######################
+###    total_area   ###
+#######################
+
+
+total_area <- function(x){
+  
+  binomial <- x$binomial[1]
+  presences <- x %>% 
+    mutate(occurrence = ifelse(occurrence == 2, 0, occurrence)) %>% 
+    filter(occurrence == 1) %>% 
+    sf::st_union()
+  
+  hull <- sf::st_convex_hull(presences)
+  area <- as.numeric(sf::st_area(hull))
+  results <- data.frame(cbind(binomial, area))
+  
+  return(results)
+}
+
+

@@ -1,0 +1,343 @@
+---
+title: "Tests for Spatial Auto-Correlation"
+author: "steppe"
+date: "3/3/2022"
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    includes:
+      in_header: float_free.tex
+  word_document: default
+
+---
+
+\tableofcontents 
+\listoffigures
+\listoftables
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(sdm) # for building species fundamental niche models in r
+# installAll() # note you will need to do this, sdm imports functions from many other packages housing statistical tests.
+
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(usdm) # for VIF. 
+library(geosphere) # for calculating great sphere distances
+library(spdep) # for Morans.I and multiple spatial functions.
+library(rgdal) # many spatial tools. 
+library(here)
+source(here::here('scripts/sdm_functions.R'))
+set.seed(12)
+
+
+ecoregion_bound <- readOGR(here('data/processed/SoRo_ecoregion_bound.shp')) %>% st_as_sf()
+spp_occurrences <- st_read( here("data/processed/spp_occurences_no_duplicates.shp"), quiet = T) %>% st_transform(32613)
+```
+
+# Table of Contents
+
+Methods will be broadly be defined as four main components. 
+
+1) Data Cleaning, and Processing
+  + Part 1: Define the study extent.
+  + Part 2: Collect, and clip input Independent variables to this extent. 
+  + Part 3: Remove predictor variables which exhibit collinearity for the linear regressions. 
+  + Part 4: Assemble Presence Records for the extent, formatting BLM data
+2) **Tests for Spatial Auto-Correlation**
+  + Part 1: Prepare data, including creating grids, and generated neighbor objects
+  + Part 2: Calculate Moran's I and Geary's C
+  + Part 3: Sub-sample the presence records to reduce Spatial auto-correlation
+
+# 2) Tests for Spatial Auto-Correlation
+
+## 2.1: Prepare data, including creating grids, and generated neighbor objects
+
+Occurrence records which are very close together will be experiencing highly similar climate. These records will inflate the number of dependent variables in the analyses. We need to remove them so that we do not inflate our degrees of freedom. 
+
+```{r Prepare Fishnet Grid - calculate distances between cells, message = F, warning = F, echo = F} 
+grid_poly <- st_make_grid(ecoregion_bound, # create a grid which surrounds our species occurrences
+  n = c(30, 30), # number of cells x & y
+  what = "polygons", 
+  square = FALSE, # hexagons
+  crs = 4326,
+  flat_topped = TRUE # hexagons with flat tops
+  ) %>% 
+  st_sf() %>% # from simple feature collection to simple features. 
+  mutate(poly_id = dplyr::row_number())
+
+grid_poly <- grid_poly %>% filter(st_is(., "POLYGON")) # ensure no small points are created. will not all constructing neighbors. 
+grid_poly <- st_intersection(grid_poly, ecoregion_bound) %>% 
+  mutate(poly_id = 1:nrow(.)) 
+
+grid_poly_centroids1 <- st_transform(grid_poly, 32613) %>% # calculate the distances between grid cells. 
+  st_centroid()
+grid_poly_centroids <- st_transform(grid_poly_centroids1, 4326) %>% as_Spatial()
+#pairwise_dist_matrix <- geosphere::distm(grid_poly_centroids, fun = distGeo) # do i need this?
+
+grid_poly <- grid_poly %>% filter(st_is(., "POLYGON"))
+
+rm(grid_poly_centroids)
+```
+
+```{r Join Occurrences to Fishnet, message = F, echo = F}
+grid_poly <- st_transform(grid_poly, 32613)
+spp_occurrences <- spp_occurrences %>%  st_as_sf()
+occurrences_to_grid <- st_join(grid_poly, spp_occurrences) # we have appended the POLYGON to each observation now
+occurrence_count <- occurrences_to_grid %>% # note that this frame has joined geometry now
+  group_by(poly_id) %>% 
+  count() 
+
+ggplot() +
+  geom_sf(data = occurrence_count, aes(fill = n)) +
+  scale_fill_gradient(name = "count", trans = "sqrt") +
+  theme_bw()
+```
+We see a high concentration of records at the Rocky Mountain National Park. We have applied a square root fill transformation so these observations do not overwhelm the other cells of the map. 
+
+```{r Create neighbors list for Variogams, echo = F}
+neighbours <- poly2nb(grid_poly) # queen neighbors
+listw <- nb2listw(neighbours)
+rm(neighbours)
+```
+
+Generate Variogram For all Taxa. We will use this to find the range wherein occurrences are not independent. 
+```{r Variograms, message = F, warning = F, results = "hide", echo = F}
+
+extra <- as.data.frame(spp_occurrences) %>% 
+  distinct(binomial) %>% 
+  dplyr::select(binomial) %>% 
+  arrange(binomial) %>% 
+  mutate(count = 2) %>% 
+  group_by(binomial) %>% 
+  tidyr::expand(count = seq(1:count)) %>% 
+  dplyr::select(binomial)
+
+vario_list <- split(occurrences_to_grid, f = occurrences_to_grid$binomial)
+vario_list <- vario_list %>% # prep these data for a variogram, we want to know the range. 
+  map(~add_count(.x, poly_id, name = 'records_cell')) %>% 
+  map(~distinct(.x, poly_id, .keep_all = T)) %>% 
+  map(~st_drop_geometry(.x)) %>% 
+  map(~left_join(as.data.frame(grid_poly), .x,  by = "poly_id", copy = F)) %>% 
+  map(~mutate(.x, records_cell = replace_na(records_cell,  0))) %>% 
+  map(~st_as_sf(.x))
+
+vario_results <- lapply(vario_list, multi_variogram)
+vario_results <- data.table::rbindlist(vario_results)
+
+vario_results <- cbind(extra, vario_results) %>% 
+  mutate(model_fit = if_else(is.na(taxon), 'FALSE', 'TRUE')) %>% 
+  dplyr::select(-taxon)
+
+rm(multi_variogram)
+```
+
+We will now calculate Moran's Index for all species. 
+```{r Moran.I all species, echo = F}
+extra <- extra %>% 
+  distinct()
+
+spatial_autocorrelation <- data.table::rbindlist(lapply(vario_list, Morans_index_func))
+spatial_autocorrelation <- cbind(extra, spatial_autocorrelation) %>% 
+  dplyr::select(-taxon)
+
+rm(extra)
+```
+
+A table presenting the Variogram Results
+```{r Variogram Results, echo = F, warnin g= F}
+vario_results.t <- vario_results %>% 
+  filter(model != "Nug") %>% 
+  mutate(range = round(range/1000,1)) 
+
+knitr::kable(vario_results.t, 
+             caption = "Results of Variogram Tests (Exponential, Spherical, Matern),  with 200 iterations for fitting", 
+             col.names = c('Species', 'Model', 'PSill', 'Range (km)', 'Kappa', 'Model Convergence')) 
+
+vario_results.sp <- vario_results.t %>% filter(model != "Nug")
+vario_results.sp$pcolor[vario_results.sp$model=="Mat"] <- "black"
+vario_results.sp$pcolor[vario_results.sp$model=="Sph"] <- "blue"
+vario_results.sp$pcolor[vario_results.sp$model=="Exp"] <- "red"
+
+with(vario_results.sp,
+     scatterplot3d::scatterplot3d(kappa, psill, range, 
+                                  main =  "Results of Variogram Tests with 200 iterations for fitting"))
+legend("topleft", inset=0,      # location and inset
+    bty="n", cex=.5,              # suppress legend box, shrink text 50%
+    title="Model Fit",
+    c("Matern", "Spherical", "Expontential"), fill=c("black", "blue", "red"))
+
+rm(vario_results.t, vario_results.sp) 
+```
+
+A table presenting the Moran's Index, under randomization, Results
+```{r Morans Index table}
+options(scipen=0)
+
+spatial_autocorrelation %>% 
+  mutate(across(starts_with("m"), ~ as.numeric(.))) %>% 
+  mutate(mor.i = round(mor.i, 3)) %>% 
+  dplyr::mutate(across(where(is.numeric), ~ as.character(signif(., 2)))) %>% 
+  knitr::kable(.,
+             caption = "Results of Morans Index of Spatial Auto-corellation test", 
+             col.names = c('Species', 'Morans I', 'M. Expected', 'M. variance', 'p-value'))
+
+scatterplot3d::scatterplot3d(spatial_autocorrelation[,c(2,4:5)])
+```
+
+```{r, echo = F, warning = F}
+rm(grid_poly_centroids1, occurrence_count, vario_list)
+```
+
+## 2.2: Calculate Moran's I and Geary's C
+
+We will reduce the effects of spatial auto-correlation on our predictions by sampling from our original occurrence data. We want to reduce the Moran.I index of our records to beneath a somewhat arbitrary threshold of + 0.3. We may use the Range values calculated from our Variograms to find which occurrence records have the most intersections, and remove them to try and achieve Moran.I indices within our threshold.
+
+We will save the removed points and remove them from being a possible pseudo-absence. Perhaps, we can use these to evaluate model fits after our forecasts are built. ALOT of this code is hacky, definitely some weird stuff going on here, I bet it is functionality sf will add at one point, but kind of the hacky stuff ya gotta do with sf currently. 
+
+```{r subset occurrences for subsetting, echo = F}
+vario_results.1 <- vario_results %>%  # First we target the species which exhibit moderate to strong AU. 
+  filter(range > 0.0) %>% # removes the nuggets
+  dplyr::select(binomial, range) %>% 
+  #mutate(range = units::as_units(range, "meters")) %>% 
+  left_join(spatial_autocorrelation %>% 
+              dplyr::select("binomial", "mor.i"), by = "binomial") %>% 
+  filter(mor.i > 0.40) # taxa to sub-sample
+
+spp_occurrence_SA <- left_join(vario_results.1, spp_occurrences, by = "binomial") %>% 
+  dplyr::select(binomial, range, PlotKey, geometry) %>%   # build our dataset 
+  mutate(range = as.numeric(as.character(range))) %>% 
+  st_as_sf()
+```
+
+## 2.3: Reduce Auto-correlation 
+
+We are not going to aim to achieve a follow up Morans' index of 0, we are aiming to get the Morans Index beneath 0.4. 
+
+Here we have a function which performs 3 main processes. 
+
+1) Remove the records in the top 2.5% which contain the highest number of neighbors, within the variogram range, in the dataset.
+2) Remove any records within 250 m from another record
+3) Remove the remaining 1% of records which are the most close in the variogram range space. 
+
+To do this we will find the top 10 nearest neighbors of each record within the semiovariogram and then we will calculate the distance between all records. 
+
+```{r sub-sample spatially auto-correlated samples, message = F, warning = F, echo = F}
+Spatial_auto_list <- split(spp_occurrence_SA, f = spp_occurrence_SA$binomial)
+out <- lapply(Spatial_auto_list, SA_reducer)
+out <- data.table::rbindlist(out) %>% st_as_sf()
+rm(SA_reducer)
+```
+
+Check out how well the process worked. We find that roughly 90% of the records have their Moran index greatly reduced, usually by 1/2 to a 1/3, but the remaining records tend to stay stagnant. 
+
+```{r, echo = F}
+out <- st_transform(out, 32613)
+out_to_grid <- st_join(grid_poly, out) # we have appended the POLYGON to each observation now
+vario_list <- split(out_to_grid, out_to_grid$binomial)
+vario_list <- vario_list %>% # prep these data for a variogram, we want to know the range. 
+  map(~add_count(.x, poly_id, name = 'records_cell')) %>% 
+  map(~distinct(.x, poly_id, .keep_all = T)) %>% 
+  map(~st_drop_geometry(.x)) %>% 
+  map(~left_join(as.data.frame(grid_poly), .x,  by = "poly_id", copy = F)) %>% 
+  map(~mutate(.x, records_cell = replace_na(records_cell,  0))) %>% 
+  map(~st_as_sf(.x))
+
+test <- lapply(vario_list, Morans_index_func)
+test <- data.table::rbindlist(test)
+```
+
+
+```{r View results of removing points from strongly spatially auto-correlated data, echo  = F, message = F}
+sp_orig <- spatial_autocorrelation %>% filter(mor.i > 0.40)
+
+pct <- function(x) {(x/lag(x))*100}
+records_post_trt <- count(out, binomial) %>% st_drop_geometry() %>% mutate(treatment = 'post')
+records <- as.data.frame(t(bind_rows(map(Spatial_auto_list, ~ nrow(.x))))) %>% 
+  rownames_to_column('binomial') %>% 
+  rename(n = V1) %>% 
+  mutate(treatment = 'pre') %>% 
+  rbind(., records_post_trt) %>% 
+  group_by(binomial) %>% 
+  arrange(binomial) %>% 
+  mutate(prcnt_remain = pct(n))
+
+reduced_sa <- cbind(sp_orig[,1:2], test[,2])
+names(reduced_sa) <- c('binomial', 'pre_moran.i', 'post_moran.i')
+reduced_sa <- reduced_sa %>% 
+  pivot_longer(!binomial, names_to = "treatment", values_to = "index") %>% 
+  group_by(binomial) %>% 
+  mutate(Mean_index = mean(index)) %>% 
+  mutate(id = cur_group_id())
+
+ggplot(reduced_sa, aes(x = index, y = reorder(binomial, Mean_index))) +
+  geom_line(aes(group = id)) +
+  geom_point(aes(color = treatment), size=1) +
+  geom_vline(xintercept = 0.40, linetype="dotted") +
+  theme_classic() +
+  labs(y="Species", x = "Morans Index", title = "Moran Index before and after reducing Nearest Neighbors") +
+  theme(legend.position = "none")
+
+rm(out_to_grid, test, vario_list, Spatial_auto_list, records_post_trt, sp_orig, records, pct)
+```
+
+
+We will now prune our species occurrence records so that these removed occurrences are no longer present. We will also save the cell/records for the records which we pruned in the above step. We cannot allow Pseudo-Absences to fall in these cells, or we will have confused models. A bonus of removing these, is that we now have pretty big test sets for our GLM and GAM models (ML will have it's own test sets). 
+
+We will introduce a new level of occurrence class here, '2', this denotes a truly known presence which a pseudo-absence cannot be propagated in the raster cell which contains it, but which has been removed from the model generation due to spatial auto-correlation. 
+
+```{r Prune occurrence records, message = F}
+spp_occurrence_SA.binomial <- as.data.frame(spp_occurrence_SA) %>% 
+  ungroup() %>% 
+  distinct(binomial) %>% 
+  pull(binomial) # we will use this product to reduce the original occurrence data set. 
+
+spp_occurrences_regression <- spp_occurrences %>% # remove the records we tossed to reduce SA.  
+  filter(!binomial %in% spp_occurrence_SA.binomial) # these are the species we did not reduce SA in
+
+spp_occurrence_SA.keep <- as.data.frame(spp_occurrence_SA) %>% 
+  group_by(binomial) %>% # recover the PlotKey, make df to rbind to the original. 
+  mutate(individual = row_number()) %>% 
+  left_join(out, ., by = c('binomial'= 'binomial','individual' = 'individual', 'geometry' = 'geometry')) %>% 
+  dplyr::select(-range, -individual) %>% 
+  mutate(occurrence = 1) %>% 
+  add_count(binomial, name = "no_record")
+
+spp_occurrences_regression <- rbind(spp_occurrences_regression, spp_occurrence_SA.keep) # add back on the records to keep. 
+testing_data_regression <- as.data.frame(spp_occurrence_SA) %>% 
+  group_by(binomial) %>% # we need to recover the PlotKey attributes, and have a df to rbind to the original. 
+  mutate(individual = row_number()) %>% 
+  anti_join(., out, by = c('binomial'= 'binomial','individual' = 'individual')) %>% 
+  dplyr::select(-range, -individual) %>% 
+  mutate(occurrence = 2) %>% 
+  add_count(binomial, name = "no_record") %>% 
+  st_as_sf() 
+
+spp_occurrences_reg_random <- rbind(testing_data_regression, spp_occurrences_regression) 
+# the coded presences, non-affected taxa, and true model restricted positives
+
+rm(spp_occurrence_SA.binomial, spp_occurrence_SA.keep, out, spp_occurrence_SA, spp_occurrences_regression, testing_data_regression)
+```
+
+clear up the environment from this section. We are finally moving on towards generating Psuedo-absence points.
+```{r Recycle, echo = F, message = F}
+rm(listw, grid_poly, Morans_index_func,  spatial_autocorrelation, vario_results, occurrences_to_grid, vario_results.1, ecoregion_bound, reduced_sa)
+rm(list = lsf.str())
+```
+
+```{r}
+st_write(spp_occurrences_reg_random, here("data/processed/spp_occurences_regression.shp"), append = F)
+st_write(spp_occurrences, here("data/processed/spp_occurences.shp"), append = F)
+```
+
+```{r}
+rm(spp_occurrences, spp_occurrences_reg_random)
+```
+
+

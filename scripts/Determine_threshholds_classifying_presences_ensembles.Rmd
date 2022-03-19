@@ -1,0 +1,57 @@
+---
+title: "Determine cutoff threadholds for classifying presences in ensembles"
+author: "steppe"
+date: "3/17/2022"
+output: pdf_document
+---
+
+
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+
+source(here::here('scripts/sdm_functions.R'))
+set.seed(12)
+```
+
+
+```{r Create Raster Stack of Predictons}
+predictions_stack <- list.files(paste0(here(), '/results/stats/'), pattern = "glm" )
+```
+
+```{r Import Pruned Occurrence Records for Presences}
+
+```
+
+```{r Import BLM data for more True Absence Records}
+
+```
+
+```{r Extract SDM predictions to independent Presence/Absence Records}
+
+extract_predictions <- function(eval_data, rstack ){
+  
+  # Inputs: eval_data = sf/tibble/dataframe of all independent 
+  # species presence and absences (i.e. those not used in model dev)
+  # rstack = raster stack of all ensembled predictions
+
+  binomial <- x$binomial[1]
+  
+  all_GAM <- raster::subset(rstack, grep(binomial, names(my_stack), value = T))
+  values <- raster
+
+
+}
+
+```
+
+
+```{r}
+
+```
+
+
+

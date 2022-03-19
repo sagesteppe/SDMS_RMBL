@@ -1,0 +1,189 @@
+---
+title: "Generating_psuedo_absences"
+author: "steppe"
+date: "3/5/2022"
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    includes:
+      in_header: float_free.tex
+  word_document: default
+
+---
+
+\tableofcontents 
+\listoffigures
+\listoftables
+
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(sdm) 
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+
+source(here::here('scripts/sdm_functions.R'))
+set.seed(12)
+```
+
+
+```{r}
+spp_occurrences_reg_random <- st_read(here("data/processed/spp_occurences_regression.shp"), quiet = T)
+spp_occurrences <- st_read(here("data/processed/spp_occurences.shp"), quiet = T)
+ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'), quiet = T)
+BLM_CP <- st_read(here("data/raw/blm_ownership/BLM_ownership_in_study_area.shp"), quiet = T)
+BLM_AIM <- st_read(here("data/raw/AIM_plants_Colorado_Basin.shp"), quiet = T) %>% 
+  dplyr::select(PlotKey, binomil) %>% 
+  rename("binomial" = binomil) %>% 
+  group_by(PlotKey)
+```
+ 
+# Table of Contents
+
+Methods will be broadly be defined as four main components. 
+
+1) Data Cleaning, and Processing
+  + Part 1: Define the study extent.
+  + Part 2: Collect, and clip input Independent variables to this extent. 
+  + Part 3: Remove predictor variables which exhibit collinearity for the linear regressions. 
+  + Part 4: Assemble Presence Records for the extent, formatting BLM data
+2) Tests for Spatial Auto-Correlation
+  + Part 1: Prepare data, including creating grids, and generated neighbor objects
+  + Part 2: Calculate Moran's I and Geary's C
+  + Part 3: Sub-sample the presence records to reduce Spatial auto-correlation
+3 **Generating Pseudo - absences**
+  + Part 1: Append true absence records to the data frames for each Species which will undergo ML and Linear Regression
+  + Part 2: Ensure each Species data frame which will be subjected to LR has 10,000 records, boosted by pseudo-absences.
+  + Part 3: Ensure each species data frame which will be subjected to ML has no. Presence == no. Pseudo-absence records factoring in environmental dissimilarity.
+
+# 3: Pseudo-Absences
+
+Many of these models will require pseudo-absences for the generation of predictions. We will use both some true-absences, and pseudoabsences to generate the number of records required to satisfy the models. 
+
+## 3.1:  Append true absence records to the data frames for each Species which will undergo ML and Linear Regression
+We will load these records with essentially true absences. While we cannot be sure a 400m^2 cell is lacking a record, this is about as good as we can get. 
+
+```{r true absences}
+prop_blm <- as.numeric((st_area(BLM_CP))/(st_area(ecoregion_bound)))
+spp_occurrences <- spp_occurrences %>% st_transform(32613)
+
+AIM_points <- BLM_AIM %>% 
+  dplyr::select(-binomial) %>% 
+  distinct(PlotKey, .keep_all = T) %>% 
+  mutate(occurrence = 0)
+AIM_points <- AIM_points %>% 
+  st_transform(32613)
+
+spp_occurrence_list <- split(as.data.frame(spp_occurrences), f = as.data.frame(spp_occurrences$binomial))
+PA_ML_DF <- lapply(spp_occurrence_list, true_absence_ML)
+```
+
+```{r True absences Regression, eval = F}
+spp_occurrence_REG_list <- split(spp_occurrences_reg_random, spp_occurrences_reg_random$binomial)
+PA_REG_DF <- lapply(spp_occurrence_REG_list, FUN = true_absence_REG)
+```
+
+
+Here we will start to treat these data differently. When ML seems to perform better than traditional techniques, I still think it is worth building an ensemble forecast from both GLM + GAM, and RF + BRTs, saving them and having a user evaluate them. Both of these sets will need different replicates, and different pseudo-absences. Furthermore we will run 10 calculations for the traditional Linear Models, whereas we will only run 6-8 for the ML's to reduce the affects of over-training. 
+
+Barbet-Massin, M., Jiguet, F., Albert, C.H., Thuiller, W. "Selecting pseudo-absences for species distribution models: how, where and how many?" Methods in Ecology and Evolution 2012, 3, 327–338 
+
+## 3.2 Ensure each Species data frame which will be subjected to LR has 10,000 records, boosted by pseudo-absences.
+
+In SDMs built from GLM's and GAM's a much higher number of (pseudo)-absences are required, 10,000 is a good rule of thumb. We will follow this rule. When selecting these absences, we will allow for the placement to be randomly distributed across the geographic extent of analysis (excluding BLM land). We will use minimum offset distances to avoid sampling the same raster cell twice. So we do not actually spatially explicitly sample here, we will just sample the sub-setted data frame from the raster 10,000 times, after removing the presences. 
+
+```{r Psuedo-absence for Regression via geography, echo = F, eval = F}
+
+ecoregion_bound <- st_transform(ecoregion_bound, 5070)
+blm_cp_s <- BLM_CP %>% 
+  st_transform(5070) %>% 
+  st_buffer(400) # we will buffer the BLM fine borders to 400 m as these areas are virtually always in the same landscape feature the method was designed to capture.
+
+blm_cp_s <- rmapshaper::ms_simplify(blm_cp_s, keep = 0.05) %>% # we will simplify the shapes of the BLM land. 
+  st_make_valid()
+
+st_erase = function(x, y) st_difference(x, st_union(st_combine(y))) # function to erase the BLM land from area. 
+blm_cp_s <- st_erase(ecoregion_bound, blm_cp_s) %>% 
+  st_cast(to = "POLYGON") # turn all polygons in the feature to their own vector objects
+
+blm_cp_s$AREA <- st_area(blm_cp_s) # calculate the area of polygons to remove minor inclusions (e.g. private land on post-stamped BLM)
+blm_cp_s <- blm_cp_s %>% 
+  mutate(AREA = as.numeric(AREA)) %>% # units in meters squared
+  filter(AREA >= 1000000) %>%  # > 1,000 hectare. 
+  st_union()
+
+PA_REG_DF <- PA_REG_DF %>% 
+  map(~st_buffer(.x, 10000)) %>% 
+  map(~st_transform(.x, 5070))
+
+Sys.time()
+test <- lapply(PA_REG_DF, random_PA_spatial) # about 30 minutes
+Sys.time()
+test1 <- data.table::rbindlist(test) %>%  st_as_sf()
+
+st_write(test1, here("data/processed/Pseudo_absences_regression_geographically_generated.shp"), append = F)
+```
+
+```{r, echo = F, warning = F, message = F}
+rm(test, test1, BLM_CP, blm_cp_s, st_erase, random_PA_spatial, ecoregion_bound)
+```
+
+
+```{r}
+names_vec <- c('PCL_MAN','PCL_SE1','PCL_SE2','PCL_SE3','PCM_BFP','PCM_CMD',
+                  'PCM_DD5', 'PCM_MAP','PCM_PAS','PCM_TD','PCT_ECO','PCT_EFW',
+                  'PLC_HRB', 'PLC_TRE', 'PLC_URB', 'PSL_BDR', 'PSL_CAR', 
+                  'PSL_PHO', 'PSL_SND','PSL_TUS','PSL_TWL','PTP_ELV','PTP_RLV',
+                  'PTP_SLP','PTP_WET','PTP_ASP','PTP_SOL', 'PCL_MRA','PSW_DIS',
+                  'PSW_OCC','PCO_XSC', 'PCO_YSC')
+
+WPDPV <- raster::stack("/hdd/Geospatial_data/Western_Plant_Predictors/SoRo_wppr_vers_two.tif")
+names(WPDPV) <- names_vec
+target <- c(2, 4,9, 10, 13, 14, 16, 19, 20, 23, 24, 25, 26, 27, 29, 30)
+
+WPDPV2 <- WPDPV[[(target)]]
+
+rm(WPDPV, target, names_vec)
+```
+
+Now to extract the climate variables for each record from the Pseudo-Absences
+```{r, Extract values for climate variables, echo = F, eval = F}
+PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression_geographically_generated.shp") )
+PA_REG_DF <- PA_REG_DF %>% filter(!st_is_empty(.))
+PA_REG_DF1 <- raster::extract(WPDPV2, PA_REG_DF) # start 12:49. 
+
+PA_REG_DF <- cbind(PA_REG_DF, PA_REG_DF1)
+PA_REG_DF1 <- PA_REG_DF %>% drop_na(PCL_SE1) 
+
+st_write(PA_REG_DF1,  here("data/processed/Pseudo_absences_regression.shp"), append = F, quiet = T)
+rm(PA_REG_DF1)
+```
+
+We have these data saved so we do not need to rerun these extractions. 
+```{r, Bring in Regression Pseudo-Absences}
+PA_REG_DF <- st_read(here("data/processed/Pseudo_absences_regression.shp"), quiet = T) # 461647
+PA_REG_DF <- PA_REG_DF %>% drop_na(PCL_SE1) 
+
+PA_REG_DF_LIST <- split(PA_REG_DF, f = PA_REG_DF$binomial)
+```
+
+We now have 1,000 Absence/Pseudo-Absence records for each species we want to analyze.
+I initially ran 10k records, but preliminary modeling indicated that this many records swamped the ability of the models to generalize, hence overly conservative predictions. It is plausible that this ratio of absences to presences is swamping the link functions in the regressions (I. Breckheimer, Pers. Comm. May. 2021) 
+
+## C. Part 3: Pseudo-Absence generation for RF & BRT
+
+```{r}
+Sys.time()
+remaining_records <- lapply(PA_REG_DF_LIST, percentile)
+remaining_records <- data.table::rbindlist(remaining_records) %>% st_as_sf()
+st_write(remaining_records,  here("data/processed/Pseudo_absences_regression.shp"), append = F, quiet = T)
+```
+
+
+In an SDM built from a RF, simulation studies have shown that a roughly equivalent number of Presence to Absence records achieves the best results. Further results show that sampling the pseudo-absences from a range of environmental variables will produce better results than random stratification than throughout geographic space. 
+
+Herein we determine what realized niche values exist for our species of interest. We will extract the cell number of each of our presence records. We will then rescale all of our predictor variables, and extract the values associated with our presence for each taxon. We will calculate a mean of these cells, with 100 bootstraps, and then remove cells from the raster within the 95% confidence intervals of the mean from the rescaled row sums. We will then randomly sample a number of pseudo-absence records equivalent to the number of presences - 0.2 (the prop of records from BLM true absences). 
+
+In this script we will limit the number of records to analyzed to the random points we have already drawn in the above process. 

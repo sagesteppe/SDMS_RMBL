@@ -16,6 +16,16 @@ library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
 library(raster) # raster data
 library(here)
+
+source(here::here('scripts/sdm_functions.R'))
+
+ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'))
+
+ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>% 
+  dplyr::select(NA_L3CODE, NA_L3NAME) %>% 
+  filter(NA_L3NAME == 'Southern Rockies') %>% 
+  st_union() %>% 
+  st_transform(5070)
 ```
 
 ## 1.4: Assemble Presence Records for the extent, formatting BLM data
@@ -25,7 +35,6 @@ We will need to bring in our Species Data. These data were found by querying the
 We will then query these species to the BIEN database, as the state lists seem to be subset, we will download those and then clip the records to our bounding area. Remember we already standardized the names to/from this database. This will take some work if you want to do this. Check my github, this happens in more than most scripts. 
 
 ```{r Query BIEN for occurrence records, eval = F}
-ecoregion_bound <- readOGR(here('data/processed/SoRo_ecoregion_bound.shp'))
 species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
 ecoregion_bound <- st_as_sf(ecoregion_bound)
 ecoregion_bound <- st_transform(ecoregion_bound, 4326)
@@ -103,7 +112,7 @@ As these data are quite large, and of very fine resolution, we will slightly sim
 
 Here we write out the data to simple shapefiles so we can re-continue this work in the future without waiting for these processes to run. 
 ```{r Convert GDB to SHP, eval = F, echo = F}
-uCP <- sf::st_read("/hdd/Geospatial_data/Public_land_ownership/PADUS2_1_Region7_Arc10GDB\\PADUS2_1_Region7.gdb", quiet = T) %>% 
+uCP <- sf::st_read("/hdd/Geospatial_data/Public_land_ownership/PADUS2_1_Region7_Arc10GDB/PADUS2_1_Region7.gdb", quiet = T) %>%
   dplyr::filter(Mang_Name == "BLM") %>% 
   dplyr::select(Mang_Name)
 uCP <- ensure_multipolygons(uCP)
@@ -186,14 +195,17 @@ BLM_AIM %>%
   knitr::kable(caption = "Number of Assess, Inventory, & Monitor (AIM), Plots in Study Extent", 
                col.names = "Number of Plots")
 
+
+
+st_write(BLM_AIM, paste0(here(), '/data/processed/AIM_Records_study_area.shp'))
 rm(ecoregions)
 ```
 
-We have 4029 plots, we see that they are biased towards the Western edge of analysis. Since these records can only make up 0.18 of the total number of presence, if we have a taxon with greater than about 17400 occurrence records, we will not have enough absences from this pool to meet the 18% quota. Looks pretty good in theory. 
+We have 4029 plots, we see that they are biased towards the Western edge of analysis. Since these records can only make up 0.19 of the total number of presence, if we have a taxon with greater than about 17400 occurrence records, we will not have enough absences from this pool to meet the 19% quota. Looks pretty good in theory. 
 
 Let's try and boost our BIEN presence records with BLM plot numbers, I am sure we can scrape out a few things. At this point we will also remove records which have fewer than 10 observations, we will not have any degrees of freedom with these records, and we cannot generalize anything from them. 
 ```{r Extract Presence Records from BLM data, echo = F}
-species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
+species <- spp_occurrences %>% pull(binomial) %>% unique()
 
 AIM_presence <- BLM_AIM %>% 
   filter(binomial %in% species) %>%  # 15k records - largely sagebrush a few other items. 
@@ -238,4 +250,14 @@ spp_occurrences <- data.table::rbindlist(spp_occurrences) # remove arouns 4k rec
 rm(spp_occurrences_list, pseudo_rep_funct)
 ```
 
-We can now write out these species occurence records for more trimming and analyses
+We can now write out these species occurrence records for more trimming and analyses
+
+```{r}
+st_write(spp_occurrences, here("data/processed/spp_occurences_no_duplicates.shp"), append = F)
+```
+
+```{r}
+rm(BLM_AIM, BLM_CP, ecoregion_bound, extra, spp_occurrences)
+rm(list = lsf.str())
+```
+

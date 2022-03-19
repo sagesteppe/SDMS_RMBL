@@ -1,0 +1,73 @@
+---
+title: "run_fit_SDMS_linear_models"
+author: "steppe"
+date: "3/10/2022"
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    includes:
+      in_header: float_free.tex
+  word_document: default
+---
+
+\tableofcontents 
+\listoffigures
+\listoftables
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(sdm) 
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+
+source(here::here('scripts/sdm_functions.R'))
+set.seed(12)
+```
+
+
+```{r}
+names_vec <- c('PCL_MAN','PCL_SE1','PCL_SE2','PCL_SE3','PCM_BFP','PCM_CMD',
+                  'PCM_DD5', 'PCM_MAP','PCM_PAS','PCM_TD','PCT_ECO','PCT_EFW',
+                  'PLC_HRB', 'PLC_TRE', 'PLC_URB', 'PSL_BDR', 'PSL_CAR', 
+                  'PSL_PHO', 'PSL_SND','PSL_TUS','PSL_TWL','PTP_ELV','PTP_RLV',
+                  'PTP_SLP','PTP_WET','PTP_ASP','PTP_SOL', 'PCL_MRA','PSW_DIS',
+                  'PSW_OCC','PCO_XSC', 'PCO_YSC')
+
+WPDPV <- raster::stack("/hdd/Geospatial_data/Western_Plant_Predictors/SoRo_wppr_vers_two.tif")
+names(WPDPV) <- names_vec
+target <- c(2, 4,9, 10, 13, 14, 16, 19, 20, 23, 24, 25, 26, 27, 29, 30)
+
+WPDPV2 <- WPDPV[[(target)]]
+geo_proj = crs(WPDPV2)
+
+rm(WPDPV, target, names_vec)
+```
+
+```{r}
+PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression.shp"))
+PA_REG_DF %>% pull(binomial) %>% unique()
+```
+
+## D. Part 2: Run Linear Regression models, Generalized-Linear Model (GLM) and Generalized Additive Models (GAM), and ensemble results with adequate results.
+
+Here we use the True Skill Statistic (TSS) statistic to develop our weighted ensemble from each of the predictions. We choose to use this has our primary diagnostic of model fit because it is able to work across a broad range of presence records. 
+
+Allouche, O., Tsoar, A., Kadmon, K. "Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS)" 2006. Journal of Applied Ecology 43: 1223-1232.  
+
+```{r}
+
+PA_REG_DF1 <- split(PA_REG_DF, f = PA_REG_DF$binomial)
+
+Sys.time()
+lapply(PA_REG_DF1[], Linear_SDM) # skipped #3 & # 112
+Sys.time()
+
+```
+
