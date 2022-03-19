@@ -1,0 +1,241 @@
+---
+title: "import_response_data"
+author: "steppe"
+date: "3/1/2022"
+output: pdf_document
+---
+
+1) Data Cleaning, and Processing
+  + Part 1: Define the study extent.
+  + Part 2: Collect, and clip input Independent variables to this extent. 
+  + Part 3: Remove predictor variables which exhibit collinearity for the linear regressions. 
+  **+ Part 4: Assemble Presence Records for the extent, formatting BLM data**
+  
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+```
+
+## 1.4: Assemble Presence Records for the extent, formatting BLM data
+
+We will need to bring in our Species Data. These data were found by querying the BIEN database in a radius of 40km from our study site. A great number of non-vascular plants, or non-biotic pollinated plants have been removed elsewhere. As the scope of our study is to evaluate pollinator interactions.
+
+We will then query these species to the BIEN database, as the state lists seem to be subset, we will download those and then clip the records to our bounding area. Remember we already standardized the names to/from this database. This will take some work if you want to do this. Check my github, this happens in more than most scripts. 
+
+```{r Query BIEN for occurrence records, eval = F}
+ecoregion_bound <- readOGR(here('data/processed/SoRo_ecoregion_bound.shp'))
+species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
+ecoregion_bound <- st_as_sf(ecoregion_bound)
+ecoregion_bound <- st_transform(ecoregion_bound, 4326)
+eco_bound_bbox <- st_bbox(ecoregion_bound)
+
+spp_occurrences <- BIEN::BIEN_occurrence_box(
+    min.lat = eco_bound_bbox[2],
+    max.lat = eco_bound_bbox[4],
+    min.long = eco_bound_bbox[1],
+    max.long = eco_bound_bbox[3],
+    species = species,
+    cultivated = F,
+    natives.only = F
+)
+
+spp_occurrences1 <- spp_occurrences %>% 
+  dplyr::select(scrubbed_species_binomial, latitude, longitude) %>% 
+  st_as_sf(coords = c(x= "longitude", y = "latitude"), crs = 4326) %>% 
+  st_transform(4269)
+
+ecoregion_bound <- st_transform(ecoregion_bound, 4269)
+spp_occurrences1 <- st_intersection(ecoregion_bound, spp_occurrences1)
+
+fname <- paste0('BIEN_occurrence_records_', Sys.Date(), '.shp')
+
+st_write(spp_occurrences1, here("data/raw", fname), append = F)
+rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname)
+```
+
+To avoid re-running the code above, we will read these results from a local source. We will remove duplicate records within each taxon. 
+```{r Read in BIEN occurrences, echo = F}
+spp_occurrences <- st_read(here('data/raw/BIEN_occurrence_records_2022-03-03.shp'), quiet = T) %>% 
+  rename(binomial = scrbb__) %>%
+  group_by(binomial) %>% # about 1/2 of the records are un-scrubbed dupes! yikes. 
+  distinct(geometry)
+```
+
+We will visually explore the number of records obtained here. 
+```{r, Visualize the BIEN Presence Data, warning = F, echo = F}
+no_presence_records <- as.data.frame(spp_occurrences) %>% 
+  mutate(binomial = str_replace(binomial, " ", "_")) %>% 
+  count(binomial)
+
+ggplot(no_presence_records, aes(x = n)) +
+  geom_histogram(binwidth = 5) +
+  geom_density(aes(y= 5 * ..count..), fill = "cornflowerblue", alpha= 0.6) +
+  xlim(0, 1500) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title="Number of Records from BIEN for SDM Presence \n Focus on majority of taxa") +
+  xlab("Number of Presence Records") +
+  ylab('Count of taxa with n (binwidth = 5) records')
+
+rm(no_presence_records)
+```
+
+Unfortunately most taxa have few records. This is showing a major limitation of the BIEN database to update and interface with the ever growing herbaria consortia. Anecdotal, recent SoRo searches for a number of these taxa show BIEN is missing a great number of records. We can only hope this issue is resolved in the future by more frequent data imports from these websites which the museum upload their data too directly.  
+
+Now we need to bring in part of our absence data. We have good absence data from the Assess, Inventory and Monitor Program, administered by the Bureau of Land Management. However, the ownership of BLM tends to be skewed to steppe areas; with the exception of the grass steppes of the mixed and short grass prairies which represent suitable agricultural area.  Accordingly we will:
+
+-  A) Determine how much BLM ownership is present within our Study area.
+-  B) Determine how many presence records we have for each taxon in our Study area. 
+-  C) Multiply the number of taxon records by the proportion of BLM ownership to determine how many of these plots we can sample to inform our absences. 
+-  D) Subtract the number of absences we have from the number of presences, and draw X random points so that the number of presences == the number of absences + pseudo-absences.
+-    D1) Note that we will not let any record of a pseudo-absence be within the same grid cell as a presence record. 
+
+### Step A) What proportion of land is administered by the BLM in the study area? What Plots are in the Area?
+
+We will calculate the total surface area of BLM ownership within boundary areas. We will convert this value to a proportion of coverage of our total study area. This proportion will be equivalent to the total number of absences which can be drawn from these areas. 
+
+I downloaded the Region 7 (Upper Colorado Basin) & 8 (Lower Colorado Basin) PAD databases from the USGS at the following link:  
+https://www.sciencebase.gov/catalog/item/60259798d34eb12031138e0e 4.23.2021. 
+
+As these data are quite large, and of very fine resolution, we will slightly simplify them to reduce small features along the edges which will speed up calculations of surface area ownership. As these files are kept in Geodatabases, and are multisurface features we will corral them into Simple features. Then we will simplify the features, this basically will flatten curved vertices, and simplify multi points of lines across edges. After that our next step of simplification will be to Union the data, to remove internal boundaries associated with different allotments and internal designations. 
+
+Here we write out the data to simple shapefiles so we can re-continue this work in the future without waiting for these processes to run. 
+```{r Convert GDB to SHP, eval = F, echo = F}
+uCP <- sf::st_read("/hdd/Geospatial_data/Public_land_ownership/PADUS2_1_Region7_Arc10GDB\\PADUS2_1_Region7.gdb", quiet = T) %>% 
+  dplyr::filter(Mang_Name == "BLM") %>% 
+  dplyr::select(Mang_Name)
+uCP <- ensure_multipolygons(uCP)
+uCP <-  uCP %>% 
+  st_make_valid() %>% # many of these features have self intersecting rings, hence are not simple features, we make them valid here
+  st_simplify() %>% 
+  st_union()  # merge all areas into a single feature.
+st_write(uCP, paste0(tempdir(), "/", "Upper_CO_Basin.shp"))
+
+lCP <- sf::st_read("/hdd/Geospatial_data/Public_land_ownership/PADUS2_1_Region8_Arc10GDB/PADUS2_1_Region8.gdb", quiet = T) %>% 
+  dplyr::filter(Mang_Name == "BLM") %>% 
+  dplyr::select(Mang_Name)
+lCP <- ensure_multipolygons(lCP)
+lCP <-  lCP %>% 
+  st_make_valid() %>% 
+  st_simplify() %>% 
+  st_union()
+st_write(lCP, paste0(tempdir(), "/", "Lower_CO_Basin.shp"), append = F)
+
+rm(uCP, lCP, ensure_multipolygons)
+```
+
+Crop the BLM land to the extent of analysis and determine total surface area. 
+```{r Crop BLM land to Area of Analysis, eval = F}
+uCP <- st_read(here("data/raw/blm_ownership/Upper_CO_Basin.shp"), quiet = T)
+lCP <- st_read(here("data/raw/blm_ownership/Lower_CO_Basin.shp"), quiet = T)
+BLM_CP <- st_union(uCP, lCP) %>% 
+  st_transform(4269)
+BLM_CP <- st_make_valid(BLM_CP)
+
+ecoregion_bound <- st_as_sf(ecoregion_bound) %>% 
+  st_transform(4269)
+BLM_CP <- st_intersection(ecoregion_bound, BLM_CP)
+
+ggplot(ecoregion_bound) +
+  geom_sf() +
+  geom_sf(data = BLM_CP, fill = "magenta") +
+  theme_bw()
+
+prop_blm <- (st_area(BLM_CP))/(st_area(ecoregion_bound))
+print(prop_blm) # 0.1928506 of the total area. 
+
+st_write(BLM_CP,here("data/raw/blm_ownership/BLM_ownership_in_study_area.shp"), append = F)
+rm(uCP, lCP)
+```
+
+We see that 19.28506 % of the total study area has BLM Surface management. We will aim to have only 19.3 +/- 0.5 of our absence records from BLM survey work. 
+```{r read in BLM ownership shapefile, echo =F}
+BLM_CP <- st_read(here("data/raw/blm_ownership/BLM_ownership_in_study_area.shp"), quiet = T)
+```
+
+We will import the Assess, Inventory, and Monitor Plots into the script, and cull them to this geographic extent. 
+```{r Load AIM plots, message = F, echo = F}
+BLM_AIM <- st_read(here("data/raw/AIM_plants_Colorado_Basin.shp"), quiet = T) %>% 
+  dplyr::select(PlotKey, binomil) %>% 
+  rename("binomial" = binomil) %>% 
+  group_by(PlotKey)
+
+ecoregion_bound <- st_as_sf(ecoregion_bound) %>% 
+  st_transform(4269)
+BLM_AIM <- st_intersection(ecoregion_bound, BLM_AIM)
+
+ecoregions <- ecoregions %>% 
+  st_transform(4269)
+
+ggplot(ecoregion_bound) +
+  geom_sf() +
+  geom_sf(data = ecoregions, fill = "cyan") +
+  geom_sf(data = BLM_AIM) +
+  theme_bw() +
+  labs(title="AIM plots overlaying the Southern Rockies \n Ecoregion and Area of Analysis") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 45)) 
+
+BLM_AIM %>% 
+  st_drop_geometry() %>% 
+  distinct(PlotKey) %>% 
+  ungroup() %>% 
+  count() %>% 
+  knitr::kable(caption = "Number of Assess, Inventory, & Monitor (AIM), Plots in Study Extent", 
+               col.names = "Number of Plots")
+
+rm(ecoregions)
+```
+
+We have 4029 plots, we see that they are biased towards the Western edge of analysis. Since these records can only make up 0.18 of the total number of presence, if we have a taxon with greater than about 17400 occurrence records, we will not have enough absences from this pool to meet the 18% quota. Looks pretty good in theory. 
+
+Let's try and boost our BIEN presence records with BLM plot numbers, I am sure we can scrape out a few things. At this point we will also remove records which have fewer than 10 observations, we will not have any degrees of freedom with these records, and we cannot generalize anything from them. 
+```{r Extract Presence Records from BLM data, echo = F}
+species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
+
+AIM_presence <- BLM_AIM %>% 
+  filter(binomial %in% species) %>%  # 15k records - largely sagebrush a few other items. 
+  dplyr::select(-data)
+
+spp_occurrences <- spp_occurrences %>% 
+  mutate(PlotKey = NA) %>% 
+  rbind(AIM_presence) %>% # we are appending the BLM occurrence records to the data frame. 
+  mutate(binomial = str_replace(binomial, " ", "_"))
+
+spp_occurrences <- spp_occurrences %>% 
+  add_count(binomial, name = "no.record") %>% 
+  filter(no.record >= 10) %>% 
+  filter(binomial != 'Populus_tremuloides') %>%  # we will omit these, not pollinated!
+  filter(binomial != 'Artemisia_tridentata') %>% 
+  mutate(occurrence = 1)
+
+extra <- as.data.frame(spp_occurrences) %>% 
+  distinct(binomial) %>% 
+  dplyr::select(binomial) %>% 
+  arrange(binomial) %>% 
+  mutate(count = 2) %>% 
+  group_by(binomial) %>% 
+  tidyr::expand(count = seq(1:count)) %>% 
+  dplyr::select(binomial)
+
+rm(AIM_presence, species)
+```
+
+
+We will also do slight spatial filtering here. As each cell is 90 x 90m, we will need to remove all records within (√ 90^2 + 90^2) 128 meters (the diagonal of the raster cells) of each other within taxon. These two steps will eliminate pseudo-replication in the broad sense (i.e. a count of two presences per an individual cell). The if else are nested in here pretty gross, but it seems to catch the corners. 
+
+```{r Remove Pseudo-Replicated Points, message = F, warning = F, echo = F, results = 'hide'}
+spp_occurrences <- spp_occurrences %>% 
+  st_as_sf() %>% 
+  st_transform(32613)
+spp_occurrences_list <- split(spp_occurrences, f = spp_occurrences$binomial)
+
+spp_occurrences <- lapply(spp_occurrences_list, pseudo_rep_funct)
+spp_occurrences <- data.table::rbindlist(spp_occurrences) # remove arouns 4k records.
+
+rm(spp_occurrences_list, pseudo_rep_funct)
+```
+
+We can now write out these species occurence records for more trimming and analyses
