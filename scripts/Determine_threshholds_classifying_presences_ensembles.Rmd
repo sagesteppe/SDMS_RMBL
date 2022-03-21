@@ -20,7 +20,10 @@ set.seed(12)
 
 
 ```{r Create Raster Stack of Predictons}
-predictions_stack <- list.files(paste0(here(), '/results/stats/'), pattern = "glm" )
+predictions_stack <- paste0(here(), '/results/maps/',
+list.files(paste0(here(), '/results/maps/'),
+           pattern = "*.tif$" ))
+predictions_stack <- raster::stack(predictions_stack)
 ```
 
 We will use the ecoregion bound to query GBIF for more presence records for testing ensembles for prediction thresholds. We will also used the records which were removed from the intial BIEN data due to high levels of spatial auto-correlation. 
@@ -38,16 +41,17 @@ We will also import the AIM dataset to feed in more true absences.
 AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quiet = T)
 ```
 
+We will scrape GBIF for some new records to test our preidcictions against. 
 ```{r check GBIF for new presence records, eval = F}
 wkt_boundary <-  ecoregion_bound %>%  
   st_transform(4326) %>% 
   dplyr::select(ncol(.)) %>% 
   st_bbox()
 
-species_vec <- true_recs %>% distinct(binomial) %>% pull(binomial) %>% gsub("_", " ", .)
+species_vec <- true_recs %>% distinct(binomial) %>% pull(binomial) %>% 
+  gsub("_", " ", .)
 
 gbif_results_raw <-  lapply(species_vec, gbif_collector)
-
 gbif_results_raw <- gbif_results_raw %>% 
   bind_rows() %>% 
   st_as_sf(coords = c(x = 'decimalLongitude', y = 'decimalLatitude'), 
@@ -61,7 +65,8 @@ rm(list=lsf.str())
 ```{r determine which GBIF records are duplicates of BIEN records, eval = F}
 
 gbif <- st_read(paste0(here(),'/data/raw/gbif_data.shp'), quiet = T)
-gbif <- gbif %>% separate(scntfcN, c("genus", "epithet"), extra = "drop", remove = F) %>% 
+gbif <- gbif %>% separate(scntfcN, c("genus", "epithet"), 
+                          extra = "drop", remove = F) %>% 
   unite('binomial', genus:epithet, sep = "_") %>% 
   st_transform( 32613)
 
@@ -104,14 +109,68 @@ st_write(gbif, paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T, 
 ```
 
 ```{r join new GBIF data with thinned data and draw new absences}
+gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T) %>% 
+  dplyr::select(binomial) %>% 
+  mutate(PlotKey = "") %>% 
+  st_transform(predictions_stack@crs@projargs)
+gbif$PlotKey <- na_if(gbif$PlotKey, "")
 
-gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
+presences <- recs_rm_spatial_auto %>% 
+  dplyr::select(binomial, PlotKey) %>% 
+  st_transform(predictions_stack@crs@projargs) %>% 
+  rbind(., gbif)
+
+rm(gbif, recs_rm_spatial_auto)
 ```
 
+Process united data set to assess validity for binomial logistic regression
+```{r clean dataset for logistic regression}
+# we need at least 10 absence and presences to run a binomial logistic regression
+presences <- presences %>% 
+  add_count(binomial) %>% 
+  filter(n >= 10) %>% 
+  dplyr::select(-n)
+
+# should i check for spatial autocorrelation here???? - technically yes but...
+```
+
+obtain BLM absences
+```{r}
+AIM %>% count(PlotKey)
+
+true_abs <- pseudo_abs %>% filter(!is.na(PlotKey))
 
 
-
-
+BinLogReg_abs <- function(x, y){ # for collecting true absence records from BLM land. 
+  
+  #input 
+  # x = dataset containing new presences
+  # y = dataset containing the TRUE absences for modelling and ensembling
+  
+  taxon <- x %>% distinct(binomial) %>% pull(binomial)[1]
+  presence_PK <- x %>% pull(PlotKey) %>%na.omit() 
+  absences_PK <- y %>% pull(PlotKey) %>% na.omit()
+  Pks <- c(presence_PK, absences_PK)
+  samp_req <- nrow(x)
+  
+  AIM_to_samp <- AIM %>% # remove plots which have already been used
+    filter(!PlotKey %in% Pks)  
+  
+  # verify that no occurrence of the taxon is in the plots to sample
+  AIM_removals <- AIM_to_samp %>% 
+    filter(binomial == taxon) %>% 
+    distinct(PlotKey) %>% 
+    pull(PlotKey) 
+  # now remve the plots which could have another presence record in them
+  AIM_to_samp <- AIM_to_samp %>% 
+    filter(!PlotKey %in% AIM_removals)  
+  
+  new_absence <- AIM_to_samp[sample(1:nrow(AIM_to_samp), size =  samp_req, replace = F),]
+  
+  out <- rbind(x, AIM_absence)
+  return(out)
+}
+```
 
 
 ```{r Extract SDM predictions to independent Presence/Absence Records}

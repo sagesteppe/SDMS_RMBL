@@ -244,6 +244,41 @@ true_absence_REG <- function(x){ # for collecting true absence records from BLM 
   return(out) 
 }
 
+
+
+###########################################
+## BINOMIAL LOGISTIC REGRESSION ABSENCES ##
+###########################################
+BinLogReg_abs <- function(x, y){ # for collecting true absence records from BLM land. 
+  
+  #input 
+  # x = dataset containing new presences
+  # y = dataset containing the TRUE absences for modelling and ensembling
+  
+  taxon <- x %>% distinct(binomial) %>% pull(binomial)[1]
+  presence_PK <- x %>% pull(PlotKey) %>%na.omit() 
+  absences_PK <- y %>% pull(PlotKey) %>% na.omit()
+  Pks <- c(presence_PK, absences_PK)
+  samp_req <- nrow(x)
+  
+  AIM_to_samp <- AIM %>% # remove plots which have already been used
+    filter(!PlotKey %in% Pks)  
+  
+  # verify that no occurrence of the taxon is in the plots to sample
+  AIM_removals <- AIM_to_samp %>% 
+    filter(binomial == taxon) %>% 
+    distinct(PlotKey) %>% 
+    pull(PlotKey) 
+  # now remve the plots which could have another presence record in them
+  AIM_to_samp <- AIM_to_samp %>% 
+    filter(!PlotKey %in% AIM_removals)  
+  
+  new_absence <- AIM_to_samp[sample(1:nrow(AIM_to_samp), size =  samp_req, replace = F),]
+  
+  out <- rbind(x, AIM_absence)
+  return(out)
+}
+
 #####################
 # RANDOM PA SPATIAL #
 #####################
