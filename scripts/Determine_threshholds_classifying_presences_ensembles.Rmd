@@ -78,12 +78,14 @@ true_recs_list_sub <- true_recs_list[which(names(true_recs_list) %in% names(gbif
 results <- mapply(st_intersects, gbif_list_sub, true_recs_list_sub)
 results <- map(results, tibble) 
 results <- data.table::rbindlist(results)
+colnames(results) <- 'Intersects'
+results1 <- unlist(results$Intersects)
 
 gbif <- bind_rows(gbif_list_sub) %>% 
   cbind(., results) %>% 
-  rename('Intersect' = 2) %>% 
-  mutate(Intersect = if_else(as.character(Intersect) == "integer(0)", F, T)) #%>% 
-  filter(Intersect == F)
+  mutate(Intersects = if_else(as.character(Intersects) == "integer(0)", F, T)) %>% 
+  mutate(Intersects = as.logical(Intersects)) %>% 
+  filter(Intersects == F)
 
 rm(true_recs_list, gbif_list, results)
 ```
