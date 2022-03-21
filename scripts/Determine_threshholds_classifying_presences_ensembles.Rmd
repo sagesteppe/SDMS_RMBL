@@ -38,7 +38,7 @@ We will also import the AIM dataset to feed in more true absences.
 AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quiet = T)
 ```
 
-```{r check GBIF for new presence records}
+```{r check GBIF for new presence records, eval = F}
 wkt_boundary <-  ecoregion_bound %>%  
   st_transform(4326) %>% 
   dplyr::select(ncol(.)) %>% 
@@ -58,7 +58,7 @@ rm(wkt_boundary, species_vec)
 rm(list=lsf.str())
 ```
 
-```{r determine which GBIF records are duplicates of BIEN records}
+```{r determine which GBIF records are duplicates of BIEN records, eval = F}
 
 gbif <- st_read(paste0(here(),'/data/raw/gbif_data.shp'), quiet = T)
 gbif <- gbif %>% separate(scntfcN, c("genus", "epithet"), extra = "drop", remove = F) %>% 
@@ -79,7 +79,6 @@ results <- mapply(st_intersects, gbif_list_sub, true_recs_list_sub)
 results <- map(results, tibble) 
 results <- data.table::rbindlist(results)
 colnames(results) <- 'Intersects'
-results1 <- unlist(results$Intersects)
 
 gbif <- bind_rows(gbif_list_sub) %>% 
   cbind(., results) %>% 
@@ -87,8 +86,30 @@ gbif <- bind_rows(gbif_list_sub) %>%
   mutate(Intersects = as.logical(Intersects)) %>% 
   filter(Intersects == F)
 
-rm(true_recs_list, gbif_list, results)
+st_write(gbif, paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
+
+rm(true_recs_list, gbif_list, results, gbif_list_sub, true_recs_list_sub, gbif)
 ```
+
+
+```{r followup gbif cleaning to remove duplicates, eval = F}
+gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
+
+gbif <- gbif %>% filter(occrrnS == 'PRESENT') %>% 
+  st_cast('POINT') %>% 
+  filter(bssOfRc %in% c('PRESERVED_SPECIMEN','HUMAN_OBSERVATION','OCCURRENCE')) %>% 
+  distinct(binomial, geometry, .keep_all = T)
+  
+st_write(gbif, paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T, append = F)
+```
+
+```{r join new GBIF data with thinned data and draw new absences}
+
+gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
+```
+
+
+
 
 
 
