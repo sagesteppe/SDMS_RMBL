@@ -22,13 +22,32 @@ set.seed(12)
 predictions_stack <- list.files(paste0(here(), '/results/stats/'), pattern = "glm" )
 ```
 
+We will use the ecoregion bound to query GBIF for more presence records for testing ensembles for prediction thresholds. We will also used the records which were removed from the intial BIEN data due to high levels of spatial auto-correlation. 
 ```{r Import Pruned Occurrence Records for Presences}
-
+pseudo_abs <- st_read(paste0(here(), '/data/processed/Pseudo_absences_regression.shp'))[,c(1:4,21)]
+ecoregion_bound <- st_read(paste0(here(),'/data/processed/SoRo_ecoregion_bound.shp'))
 ```
 
+We will also import the AIM dataset to feed in more true absences. 
 ```{r Import BLM data for more True Absence Records}
+AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'))
+```
+
+```{r check GBIF for new presence records}
+wkt_boundary <- st_as_text(ecoregion_bound$geometry)
+species_vector <- pseudo_abs %>% 
+  distinct(binomial) %>% 
+  pull(binomial)
+
 
 ```
+
+```{r}
+
+```
+
+
+
 
 ```{r Extract SDM predictions to independent Presence/Absence Records}
 
@@ -41,7 +60,7 @@ extract_predictions <- function(eval_data, rstack ){
   binomial <- x$binomial[1]
   
   all_GAM <- raster::subset(rstack, grep(binomial, names(my_stack), value = T))
-  values <- raster
+  #values <- raster
 
 
 }

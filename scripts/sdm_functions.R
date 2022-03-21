@@ -512,3 +512,21 @@ total_area <- function(x){
 }
 
 
+############################
+####    gbif_collector  ####
+############################
+ 
+# wrote one and what happened?
+
+
+gbif_collector <- function(dataset, species_column, kingdom, sf_boundary){
+  
+  species_vec <- dataset %>% pull(species_column) %>% unique()
+  
+  occ_data(species, 
+           hasGeospatialIssue = F,
+           country = 'US',
+           kingdomKey = 'Plants',
+           geometry = wkt_boundary
+           )
+}
