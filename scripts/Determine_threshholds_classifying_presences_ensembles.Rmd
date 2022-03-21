@@ -25,15 +25,17 @@ predictions_stack <- list.files(paste0(here(), '/results/stats/'), pattern = "gl
 
 We will use the ecoregion bound to query GBIF for more presence records for testing ensembles for prediction thresholds. We will also used the records which were removed from the intial BIEN data due to high levels of spatial auto-correlation. 
 ```{r Import Pruned Occurrence Records for Presences}
-pseudo_abs <- st_read(paste0(here(), '/data/processed/Pseudo_absences_regression.shp'))[,c(1:4,21)]
+pseudo_abs <- st_read(paste0(here(), '/data/processed/Pseudo_absences_regression.shp'), 
+                      quiet = T)[,c(1:4,21)]
 recs_rm_spatial_auto <- pseudo_abs %>% filter(occurrence == 2)
+true_recs <- pseudo_abs %>% filter(!is.na(PlotKey) | occurrence == 1 | occurrence == 2)
   
 ecoregion_bound <- st_read(paste0(here(),'/data/processed/SoRo_ecoregion_bound.shp'))
 ```
 
 We will also import the AIM dataset to feed in more true absences. 
 ```{r Import BLM data for more True Absence Records}
-AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'))
+AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quiet = T)
 ```
 
 ```{r check GBIF for new presence records}
@@ -42,52 +44,48 @@ wkt_boundary <-  ecoregion_bound %>%
   dplyr::select(ncol(.)) %>% 
   st_bbox()
 
-wkt_boundary <- st_as_text(wkt_boundary)
-
-true_recs <- pseudo_abs %>% filter(!is.na(PlotKey) | occurrence == 1)
 species_vec <- true_recs %>% distinct(binomial) %>% pull(binomial) %>% gsub("_", " ", .)
 
+gbif_results_raw <-  lapply(species_vec, gbif_collector)
 
-
-three <- rgbif::occ_data(
-  scientificName = species_vec[3], 
-  hasGeospatialIssue = F,
-  country = 'US',
-  kingdomKey = 'Plants',
-  geometry = wkt_boundary,
-  limit=1000
-  )
-
-my_species <- c('Delphinium nuttallianum', 'Delphinium barbeyi')
-
-test <- rgbif::occ_data(
-  scientificName = my_species[1], 
-  hasGeospatialIssue = F,
-  geometry = wkt_boundary,
-  kingdomKey = 6,
-  limit=1000
-  )
-
-
-test1 <- test[['data']]
-
-
-test[['data']][,c(1:8, 14:17,26,32,38,44,51,55,62,70)]
-test[['meta']]$endOfRecords
-
-  st_as_sf(coords = c(x = 'decimalLongitude', y = 'decimalLatitude'), crs = 4326) %>% 
-    
-  ggplot() +
-  geom_sf()
-
-test_rest <-  lapply(my_species, gbif_collector)
-test_rest <- test_rest %>% 
+gbif_results_raw <- gbif_results_raw %>% 
   bind_rows() %>% 
-  st_as_sf(coords = c(x = 'decimalLongitude', y = 'decimalLatitude'), crs = 4326)
+  st_as_sf(coords = c(x = 'decimalLongitude', y = 'decimalLatitude'), 
+           crs = 4326)
+
+# st_write(gbif_results_raw, paste0(here(),'/data/raw/gbif_data.shp'))
+rm(wkt_boundary, species_vec)
+rm(list=lsf.str())
 ```
 
-```{r}
+```{r determine which GBIF records are duplicates of BIEN records}
 
+gbif <- st_read(paste0(here(),'/data/raw/gbif_data.shp'), quiet = T)
+gbif <- gbif %>% separate(scntfcN, c("genus", "epithet"), extra = "drop", remove = F) %>% 
+  unite('binomial', genus:epithet, sep = "_") %>% 
+  st_transform( 32613)
+
+true_recs <- st_transform(true_recs, 32613) %>% st_buffer(400)
+
+true_recs_list <- split(true_recs, ~binomial)
+gbif_list <-split(gbif, ~binomial)
+
+# ensure reciprocal mathcing between datsets
+gbif_list_sub <- gbif_list[which(names(gbif_list) %in% names(true_recs_list))]
+true_recs_list_sub <- true_recs_list[which(names(true_recs_list) %in% names(gbif_list_sub))]
+
+# we can then calculate st-distance between the members of the two datasets. 
+results <- mapply(st_intersects, gbif_list_sub, true_recs_list_sub)
+results <- map(results, tibble) 
+results <- data.table::rbindlist(results)
+
+gbif <- bind_rows(gbif_list_sub) %>% 
+  cbind(., results) %>% 
+  rename('Intersect' = 2) %>% 
+  mutate(Intersect = if_else(as.character(Intersect) == "integer(0)", F, T)) #%>% 
+  filter(Intersect == F)
+
+rm(true_recs_list, gbif_list, results)
 ```
 
 
