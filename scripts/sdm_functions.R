@@ -519,14 +519,19 @@ total_area <- function(x){
 # wrote one and what happened?
 
 
-gbif_collector <- function(dataset, species_column, kingdom, sf_boundary){
+gbif_collector <- function(dataset, bbox_dat){
   
-  species_vec <- dataset %>% pull(species_column) %>% unique()
+  downloaded <- occ_data(
+    dataset, 
+    scientificName = dataset, 
+    hasGeospatialIssue = F,
+    geometry = bbox_dat,
+    kingdomKey = 6,
+    limit=1000
+    )
   
-  occ_data(species, 
-           hasGeospatialIssue = F,
-           country = 'US',
-           kingdomKey = 'Plants',
-           geometry = wkt_boundary
-           )
+  data <- downloaded[['data']][,c(1:8, 14:17,26,32,38,44,51,55,62,70)]
+  data$endOfRecords <- downloaded[['meta']]$endOfRecords
+  
+  Sys.sleep(1)
 }
