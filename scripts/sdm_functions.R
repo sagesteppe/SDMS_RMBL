@@ -519,13 +519,12 @@ total_area <- function(x){
 # wrote one and what happened?
 
 
-gbif_collector <- function(dataset, bbox_dat){
+gbif_collector <- function(dataset){
   
   downloaded <- occ_data(
-    dataset, 
     scientificName = dataset, 
     hasGeospatialIssue = F,
-    geometry = bbox_dat,
+    geometry = wkt_boundary,
     kingdomKey = 6,
     limit=1000
     )
@@ -533,5 +532,6 @@ gbif_collector <- function(dataset, bbox_dat){
   data <- downloaded[['data']][,c(1:8, 14:17,26,32,38,44,51,55,62,70)]
   data$endOfRecords <- downloaded[['meta']]$endOfRecords
   
+  return(data)
   Sys.sleep(1)
 }

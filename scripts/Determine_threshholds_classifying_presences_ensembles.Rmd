@@ -48,7 +48,6 @@ true_recs <- pseudo_abs %>% filter(!is.na(PlotKey) | occurrence == 1)
 species_vec <- true_recs %>% distinct(binomial) %>% pull(binomial) %>% gsub("_", " ", .)
 
 
-test_rest <- gbif_collector(species_vec[3], wkt_boundary)
 
 three <- rgbif::occ_data(
   scientificName = species_vec[3], 
@@ -73,15 +72,18 @@ test <- rgbif::occ_data(
 test1 <- test[['data']]
 
 
-test[['data']][,c(1:8, 14:17,26,32,38,44,51,55,62,70)]  %>% 
+test[['data']][,c(1:8, 14:17,26,32,38,44,51,55,62,70)]
+test[['meta']]$endOfRecords
 
   st_as_sf(coords = c(x = 'decimalLongitude', y = 'decimalLatitude'), crs = 4326) %>% 
-    
     
   ggplot() +
   geom_sf()
 
-wkt_boundary
+test_rest <-  lapply(my_species, gbif_collector)
+test_rest <- test_rest %>% 
+  bind_rows() %>% 
+  st_as_sf(coords = c(x = 'decimalLongitude', y = 'decimalLatitude'), crs = 4326)
 ```
 
 ```{r}
