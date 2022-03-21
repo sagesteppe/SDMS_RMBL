@@ -255,8 +255,9 @@ BinLogReg_abs <- function(x, y){ # for collecting true absence records from BLM 
   # x = dataset containing new presences
   # y = dataset containing the TRUE absences for modelling and ensembling
   
-  taxon <- x %>% distinct(binomial) %>% pull(binomial)[1]
-  presence_PK <- x %>% pull(PlotKey) %>%na.omit() 
+  taxon <- x %>% distinct(binomial) %>% pull(binomial)
+  taxon <- taxon[1]
+  presence_PK <- x %>% pull(PlotKey) %>% na.omit() 
   absences_PK <- y %>% pull(PlotKey) %>% na.omit()
   Pks <- c(presence_PK, absences_PK)
   samp_req <- nrow(x)
@@ -275,10 +276,9 @@ BinLogReg_abs <- function(x, y){ # for collecting true absence records from BLM 
   
   new_absence <- AIM_to_samp[sample(1:nrow(AIM_to_samp), size =  samp_req, replace = F),]
   
-  out <- rbind(x, AIM_absence)
+  out <- rbind(x, new_absence)
   return(out)
 }
-
 #####################
 # RANDOM PA SPATIAL #
 #####################

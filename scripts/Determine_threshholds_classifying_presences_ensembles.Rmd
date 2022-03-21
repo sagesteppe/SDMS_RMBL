@@ -33,12 +33,13 @@ pseudo_abs <- st_read(paste0(here(), '/data/processed/Pseudo_absences_regression
 recs_rm_spatial_auto <- pseudo_abs %>% filter(occurrence == 2)
 true_recs <- pseudo_abs %>% filter(!is.na(PlotKey) | occurrence == 1 | occurrence == 2)
   
-ecoregion_bound <- st_read(paste0(here(),'/data/processed/SoRo_ecoregion_bound.shp'))
+ecoregion_bound <- st_read(paste0(here(),'/data/processed/SoRo_ecoregion_bound.shp'), quiet = T)
 ```
 
 We will also import the AIM dataset to feed in more true absences. 
 ```{r Import BLM data for more True Absence Records}
-AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quiet = T)
+AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quiet = T) %>% 
+  dplyr::select(-data)
 ```
 
 We will scrape GBIF for some new records to test our preidcictions against. 
@@ -96,6 +97,10 @@ st_write(gbif, paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
 rm(true_recs_list, gbif_list, results, gbif_list_sub, true_recs_list_sub, gbif)
 ```
 
+```{r remove some datasets which are generated for the above chunk when eval is false on it, echo = F}
+rm(true_recs)
+```
+
 
 ```{r followup gbif cleaning to remove duplicates, eval = F}
 gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
@@ -134,42 +139,31 @@ presences <- presences %>%
 # should i check for spatial autocorrelation here???? - technically yes but...
 ```
 
-obtain BLM absences
+obtain BLM absences to generate our full test set for regression
 ```{r}
-AIM %>% count(PlotKey)
+true_abs <- pseudo_abs %>%
+  filter(!is.na(PlotKey) & occurrence == 0) 
 
-true_abs <- pseudo_abs %>% filter(!is.na(PlotKey))
+presences_L <- st_transform(presences, 4269) %>%  
+  mutate(occurrence = 1) %>% 
+  split(., ~binomial)
+true_abs_L <-  st_transform(true_abs, 4269) %>% 
+  dplyr::select(binomial, PlotKey) %>% 
+  mutate(occurrence = 0) %>% 
+  split(., ~ binomial)
+presences_L <- presences_L[which(names(presences_L) %in% names(true_abs_L))]
+true_abs_L <- true_abs_L[which(names(true_abs_L) %in% names(presences_L))]
 
+outro <- mapply(BinLogReg_abs, x = presences_L, y = true_abs_L,
+                          SIMPLIFY = FALSE)
+outro <- bind_rows(outro) 
 
-BinLogReg_abs <- function(x, y){ # for collecting true absence records from BLM land. 
-  
-  #input 
-  # x = dataset containing new presences
-  # y = dataset containing the TRUE absences for modelling and ensembling
-  
-  taxon <- x %>% distinct(binomial) %>% pull(binomial)[1]
-  presence_PK <- x %>% pull(PlotKey) %>%na.omit() 
-  absences_PK <- y %>% pull(PlotKey) %>% na.omit()
-  Pks <- c(presence_PK, absences_PK)
-  samp_req <- nrow(x)
-  
-  AIM_to_samp <- AIM %>% # remove plots which have already been used
-    filter(!PlotKey %in% Pks)  
-  
-  # verify that no occurrence of the taxon is in the plots to sample
-  AIM_removals <- AIM_to_samp %>% 
-    filter(binomial == taxon) %>% 
-    distinct(PlotKey) %>% 
-    pull(PlotKey) 
-  # now remve the plots which could have another presence record in them
-  AIM_to_samp <- AIM_to_samp %>% 
-    filter(!PlotKey %in% AIM_removals)  
-  
-  new_absence <- AIM_to_samp[sample(1:nrow(AIM_to_samp), size =  samp_req, replace = F),]
-  
-  out <- rbind(x, AIM_absence)
-  return(out)
-}
+outro %>% group_by(binomial) %>% 
+  st_drop_geometry() %>% 
+  count(occurrence) %>% 
+  print()
+
+rm(true_abs, presences_L, true_abs_L, presences_L, true_abs_L, pseudo_abs)
 ```
 
 
