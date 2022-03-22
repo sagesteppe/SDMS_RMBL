@@ -143,7 +143,7 @@ presences <- presences %>%
 ```
 
 obtain BLM absences to generate our full test set for regression
-```{r}
+```{r collect BLM absences}
 true_abs <- pseudo_abs %>%
   filter(!is.na(PlotKey) & occurrence == 0) 
 
@@ -220,11 +220,89 @@ rm(AIM, ecoregion_bound, predictions_stack, presences, values_data, testing_set)
 ```
 
 # Run models
-
-```{r}
+ import and classify data, some values are slightly below and very slightly above 0 and 1, reclassify them here. 
+```{r, echo = F}
 testing_data <- read.csv(paste0(here() , '/data/processed/logistic_regression_theshold_data.csv'))
+testing_data <- drop_na(testing_data)
+testing_data <- testing_data %>% 
+  mutate(Value = if_else(Value < 0, 0, Value)) %>% 
+  mutate(Value = if_else(Value > 1, 1, Value))
+```
+
+split data set
+```{r split data set}
+index <- caret::createDataPartition(testing_data$occurrence, p = .70, list = FALSE)
+train <- testing_data[ index, ]
+test  <- testing_data[-index, ]
 ```
 
 
+```{r fit model}
+allspecies_log <- glm(occurrence ~ Value, data = train, family = "binomial")
+summary(allspecies_log)
+confint(allspecies_log)
+exp(coef(allspecies_log))
+```
+
+We can present results using a classifcation table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
+```{r Classification Table}
+pred_prob <- predict(allspecies_log, test, type = "response")
+
+# Create a probabiliy table for the TRAINING Data
+train$pred_class <- ifelse(allspecies_log$fitted.values >= 0.5, 1, 0)
+ctab_train <- table(cut(train$Value, breaks = 2), cut(train$occurrence, breaks = 2))
+ctab_train
+
+# now repeat the process for the TEST data
+test$pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
+ctab_test <- table(cut(test$Value, breaks = 2), cut(test$occurrence, breaks = 2))
+ctab_test
+
+ctab_report <- cbind(as.data.frame.matrix(ctab_train), 
+                     as.data.frame.matrix(ctab_test))
+
+rownames(ctab_report) <- c('Absence','Presence')
+colnames(ctab_report) <- c('Absence_train', 'Presence_train', 
+                           'Absence_test', 'Presence_test')
+```
+
+```{r Model Diagnostics}
+accuracy_train <- sum(diag(ctab_train))/sum(ctab_train)*100
+accuracy_test <- sum(diag(ctab_test))/sum(ctab_test)*100
+# Calculate the True Positive Rate
+Recall <- (ctab_train[2, 2]/sum(ctab_train[2, ]))*100
+# Calculate the  True Negative Rate}
+TNR <- (ctab_train[1, 1]/sum(ctab_train[1, ]))*100
+# Calculate the Precision of the model 
+Precision <- (ctab_train[2, 2]/sum(ctab_train[, 2]))*100
+# Calculate F-score
+F_Score <- (2 * Precision * Recall / (Precision + Recall))/100
+
+# Reciever operator Curve
+
+roc <- pROC::roc(train$occurrence, allspecies_log$fitted.values)
+auc(roc)
+
+# Concordance}
+concordance <- InformationValue::Concordance(allspecies_log$y,allspecies_log$fitted.values)
+conc <- concordance[["Concordance"]]
+disc <- concordance[["Discordance"]]
+tied <- concordance[["Tied"]]
+pairs <- concordance[["Pairs"]]
+
+evaluation_table <- data.frame(
+  'Metric' = c('Accuracy (Training)','Accuracy (Test)','Recall',
+                          'True Neg. Rate','Precision', 'F-Score', 'AUC', 
+                          'Concordance', 'Discordance', 'Tied', 'Pairs'),
+           'Value' = c(accuracy_train, accuracy_test, Recall, TNR, 
+                       Precision, F_Score, as.numeric(roc[["auc"]]),
+                       conc, disc, tied, pairs )
+  )
+
+evaluation_table$Value <- signif(evaluation_table$Value, 2)
+knitr::kable(evaluation_table)
+
+rm(accuracy_train, accuracy_test, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pairs, ctab_train, ctab_test)
+```
 
 
