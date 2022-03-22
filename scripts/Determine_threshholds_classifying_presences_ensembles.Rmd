@@ -223,6 +223,7 @@ rm(AIM, ecoregion_bound, predictions_stack, presences, values_data, testing_set)
 
  import and classify data, some values are slightly below and very slightly above 0 and 1, reclassify them here. 
 ```{r, echo = F}
+set.seed(23)
 testing_data <- read.csv(paste0(here() , '/data/processed/logistic_regression_theshold_data.csv'))
 testing_data <- drop_na(testing_data)
 testing_data <- testing_data %>% 
@@ -241,9 +242,18 @@ rm(index)
 
 ```{r fit model}
 allspecies_log <- glm(occurrence ~ Value, data = train, family = "binomial")
-summary(allspecies_log)
-confint(allspecies_log)
-exp(coef(allspecies_log))
+mod_sum <- broom::tidy(allspecies_log)
+mod_sum$p.value <- '< 0.001'
+
+confint_res <- confint(allspecies_log)
+colnames(confint_res) <- c('CI 2.5', 'CI 97.5')
+rownames(confint_res) <- NULL
+
+model_sum_tab <- cbind(mod_sum[,1], confint_res[,1], mod_sum[,2], confint_res[,2], mod_sum[,3:5])
+colnames(model_sum_tab)[2] <- c('CI 2.5')
+colnames(model_sum_tab)[4] <- c('CI 97.5')
+
+knitr::kable(model_sum_tab)
 ```
 
 We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
@@ -301,7 +311,7 @@ evaluation_table <- data.frame(
                        conc, disc, tied, pair)
   )
 
-evaluation_table$Value <- signif(evaluation_table$Value, 2)
+evaluation_table$Value <- format(round(as.numeric(evaluation_table$Value), 2), nsmall = 2)
 knitr::kable(evaluation_table)
 
 rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pair, ctab_train, ctab_test, evaluation_table)
