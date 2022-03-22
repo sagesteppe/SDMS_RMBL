@@ -70,17 +70,20 @@ gbif <- gbif %>% separate(scntfcN, c("genus", "epithet"),
                           extra = "drop", remove = F) %>% 
   unite('binomial', genus:epithet, sep = "_") %>% 
   st_transform( 32613)
+ecoregion_bound <- st_transform(ecoregion_bound, 32613)
+
+gbif <- st_intersection(ecoregion_bound, gbif)
 
 true_recs <- st_transform(true_recs, 32613) %>% st_buffer(400)
 
 true_recs_list <- split(true_recs, ~binomial)
 gbif_list <-split(gbif, ~binomial)
 
-# ensure reciprocal mathcing between datsets
+# ensure reciprocal matching between data sets
 gbif_list_sub <- gbif_list[which(names(gbif_list) %in% names(true_recs_list))]
 true_recs_list_sub <- true_recs_list[which(names(true_recs_list) %in% names(gbif_list_sub))]
 
-# we can then calculate st-distance between the members of the two datasets. 
+# we can then calculate st-distance between the members of the two data sets. 
 results <- mapply(st_intersects, gbif_list_sub, true_recs_list_sub)
 results <- map(results, tibble) 
 results <- data.table::rbindlist(results)
@@ -154,14 +157,15 @@ true_abs_L <-  st_transform(true_abs, 4269) %>%
 presences_L <- presences_L[which(names(presences_L) %in% names(true_abs_L))]
 true_abs_L <- true_abs_L[which(names(true_abs_L) %in% names(presences_L))]
 
-outro <- mapply(BinLogReg_abs, x = presences_L, y = true_abs_L,
+testing_set <- mapply(BinLogReg_abs, x = presences_L, y = true_abs_L,
                           SIMPLIFY = FALSE)
-outro <- bind_rows(outro) 
+testing_set <- bind_rows(testing_set) 
 
-outro %>% group_by(binomial) %>% 
+testing_set %>% group_by(binomial) %>% 
   st_drop_geometry() %>% 
   count(occurrence) %>% 
   print()
+rownames(testing_set) <- NULL
 
 rm(true_abs, presences_L, true_abs_L, presences_L, true_abs_L, pseudo_abs)
 ```
@@ -169,13 +173,26 @@ rm(true_abs, presences_L, true_abs_L, presences_L, true_abs_L, pseudo_abs)
 
 ```{r Extract SDM predictions to independent Presence/Absence Records}
 
-extract_predictions <- function(eval_data, rstack ){
+stacks <- names(predictions_stack) 
+stacks <- gsub("_glm.*", "", stacks)
+species <- testing_set %>% distinct(binomial) %>% pull()
+
+# all species with a prediction and all species 
+# with enough records to evaluate thresholds
+positions <-intersect(stacks,species) 
+
+# subset the evaluation data
+testing_set <-testing_set %>% 
+  filter(binomial %in% positions)
+
+# to subset the raster stack to the species records
+to_sub <- match(positions, stacks)
+predictions_stack <- predictions_stack[[to_sub]]
+
+extract_predictions <- function(eval_data, rstack){
   
   # Inputs: eval_data = sf/tibble/dataframe of all independent 
-  # species presence and absences (i.e. those not used in model dev)
-  # rstack = raster stack of all ensembled predictions
-
-  binomial <- x$binomial[1]
+  # rstack = raster stack of all ensemble predictions
   
   all_GAM <- raster::subset(rstack, grep(binomial, names(my_stack), value = T))
   #values <- raster
@@ -183,6 +200,7 @@ extract_predictions <- function(eval_data, rstack ){
 
 }
 
+rm(stacks, species, positions, to_sub)
 ```
 
 

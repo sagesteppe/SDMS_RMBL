@@ -272,7 +272,10 @@ BinLogReg_abs <- function(x, y){ # for collecting true absence records from BLM 
     pull(PlotKey) 
   # now remve the plots which could have another presence record in them
   AIM_to_samp <- AIM_to_samp %>% 
-    filter(!PlotKey %in% AIM_removals)  
+    filter(!PlotKey %in% AIM_removals)  %>% 
+    mutate(binomial = taxon,
+           occurrence = 0) 
+    
   
   new_absence <- AIM_to_samp[sample(1:nrow(AIM_to_samp), size =  samp_req, replace = F),]
   
