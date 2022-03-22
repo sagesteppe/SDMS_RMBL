@@ -5,8 +5,6 @@ date: "3/17/2022"
 output: pdf_document
 ---
 
-
-
 ```{r load libraries, results='hide', message=F, warning=F}
 library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
@@ -246,7 +244,6 @@ mod_sum <- broom::tidy(allspecies_log)
 mod_sum$p.value <- '< 0.001'
 
 confint_res <- confint(allspecies_log)
-colnames(confint_res) <- c('CI 2.5', 'CI 97.5')
 rownames(confint_res) <- NULL
 
 model_sum_tab <- cbind(mod_sum[,1], confint_res[,1], mod_sum[,2], confint_res[,2], mod_sum[,3:5])

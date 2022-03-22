@@ -1,0 +1,81 @@
+---
+title: "Extract SDM's to RMBL"
+author: "steppe"
+date: "3/22/2022"
+output: pdf_document
+---
+
+Finally, we can extract SDMs to the field sites near the Rocky Mountain Biological Laboratory.
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+
+source(here::here('scripts/sdm_functions.R'))
+set.seed(12)
+```
+
+```{r Create Raster Stack of Predictons}
+predictions_stack <- paste0(here(), '/results/maps/',
+list.files(paste0(here(), '/results/maps/'),
+           pattern = "*.tif$" ))
+predictions_stack <- raster::stack(predictions_stack)
+```
+
+```{r Import Site data}
+
+sites <- paste0(here(), '/data/processed/', 
+list.files(paste0(here(), '/data/processed/'), 
+           pattern = 'Bombus_site_occurences.shp'))
+sites <- st_read(sites, quiet = T) %>% dplyr::select(site)
+sites_cent <- st_centroid(sites)
+```
+
+```{r Create Minimum Spanning Tree to Connect Sites}
+dist_nb <- knn2nb(knearneigh(sites_cent, k=3))
+listw <- nb2listw(dist_nb, style="B")
+mst.bh <- mstree(listw,2)
+
+plot(st_geometry(sites), border=gray(.5))
+plot(mst.bh, coordinates(as(sites, "Spatial")), col=2, 
+     cex.lab=.6, cex.circles=0.035, fg="blue", add=TRUE)
+
+mst.bh <- mst.bh[,1:2]
+colnames(mst.bh) <- c('From','To')
+
+coords <- sites_cent %>%
+  dplyr::mutate(lon = sf::st_coordinates(.)[,1],
+                lat = sf::st_coordinates(.)[,2]) %>% 
+  st_drop_geometry()
+
+mst.bh <- as.data.frame(mst.bh)
+lines <- data.frame(matrix(ncol=1, nrow=5))
+for (i in 1:nrow(mst.bh)){
+  
+   lines[i,] <-  st_linestring(matrix(c(coords[mst.bh[i,1],2], coords[mst.bh[i,2],2], 
+                       coords[mst.bh[i,1],3], coords[mst.bh[i,2],3]),
+                     2, 2)) %>% 
+     st_sfc() %>% 
+     st_as_sf(crs = 32613)
+}
+
+lines <- lines %>% st_as_sf(crs = 32613)
+st_crs(lines) <- 32613
+st_geometry(lines) <- 'geometry'
+
+rm(dist_nb, coords, listw, mst.bh, i)
+``` 
+
+now we will  buffer the minimum spanning tree
+
+```{r buffer msp}
+study_area <- st_buffer(lines, dist = 400, endCapStyle = 'ROUND', 
+                        joinStyle = 'ROUND') %>% st_union()
+
+ggplot(study_area) +
+  geom_sf() +
+  geom_sf(data = sites, aes(fill = site))
+```
+
