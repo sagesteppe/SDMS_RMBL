@@ -220,6 +220,7 @@ rm(AIM, ecoregion_bound, predictions_stack, presences, values_data, testing_set)
 ```
 
 # Run models
+
  import and classify data, some values are slightly below and very slightly above 0 and 1, reclassify them here. 
 ```{r, echo = F}
 testing_data <- read.csv(paste0(here() , '/data/processed/logistic_regression_theshold_data.csv'))
@@ -234,6 +235,7 @@ split data set
 index <- caret::createDataPartition(testing_data$occurrence, p = .70, list = FALSE)
 train <- testing_data[ index, ]
 test  <- testing_data[-index, ]
+rm(index)
 ```
 
 
@@ -244,26 +246,27 @@ confint(allspecies_log)
 exp(coef(allspecies_log))
 ```
 
-We can present results using a classifcation table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
-```{r Classification Table}
+We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
+```{r Classification Table. echo = F}
 pred_prob <- predict(allspecies_log, test, type = "response")
 
 # Create a probabiliy table for the TRAINING Data
 train$pred_class <- ifelse(allspecies_log$fitted.values >= 0.5, 1, 0)
-ctab_train <- table(cut(train$Value, breaks = 2), cut(train$occurrence, breaks = 2))
-ctab_train
+ctab_train <- table(cut(train$Value, breaks = 2), cut(train$occurrence,
+                                                      breaks = 2))
 
 # now repeat the process for the TEST data
 test$pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
 ctab_test <- table(cut(test$Value, breaks = 2), cut(test$occurrence, breaks = 2))
-ctab_test
 
 ctab_report <- cbind(as.data.frame.matrix(ctab_train), 
                      as.data.frame.matrix(ctab_test))
-
 rownames(ctab_report) <- c('Absence','Presence')
 colnames(ctab_report) <- c('Absence_train', 'Presence_train', 
                            'Absence_test', 'Presence_test')
+knitr::kable(ctab_report)
+
+rm(ctab_report)
 ```
 
 ```{r Model Diagnostics}
@@ -279,16 +282,15 @@ Precision <- (ctab_train[2, 2]/sum(ctab_train[, 2]))*100
 F_Score <- (2 * Precision * Recall / (Precision + Recall))/100
 
 # Reciever operator Curve
-
 roc <- pROC::roc(train$occurrence, allspecies_log$fitted.values)
-auc(roc)
 
 # Concordance}
-concordance <- InformationValue::Concordance(allspecies_log$y,allspecies_log$fitted.values)
+concordance <- InformationValue::Concordance(allspecies_log$y,
+                                             allspecies_log$fitted.values)
 conc <- concordance[["Concordance"]]
 disc <- concordance[["Discordance"]]
 tied <- concordance[["Tied"]]
-pairs <- concordance[["Pairs"]]
+pair <- concordance[["Pairs"]]
 
 evaluation_table <- data.frame(
   'Metric' = c('Accuracy (Training)','Accuracy (Test)','Recall',
@@ -296,13 +298,47 @@ evaluation_table <- data.frame(
                           'Concordance', 'Discordance', 'Tied', 'Pairs'),
            'Value' = c(accuracy_train, accuracy_test, Recall, TNR, 
                        Precision, F_Score, as.numeric(roc[["auc"]]),
-                       conc, disc, tied, pairs )
+                       conc, disc, tied, pair)
   )
 
 evaluation_table$Value <- signif(evaluation_table$Value, 2)
 knitr::kable(evaluation_table)
 
-rm(accuracy_train, accuracy_test, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pairs, ctab_train, ctab_test)
+rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pair, ctab_train, ctab_test, evaluation_table)
+```
+
+```{r create prediction plot}
+
+newdata1 <- with(testing_data, data.frame(Value = mean(Value)))
+newdata1$probability <- predict(allspecies_log, newdata = newdata1, type = "response")
+newdata2 <- with(testing_data, 
+                 data.frame(Value = rep(seq(from = 0.1, to = 1, length.out = 100), 4),
+                                          Value = mean(Value)))
+
+newdata3 <- cbind(newdata2, predict(allspecies_log, newdata = newdata2, type = "link",
+    se = TRUE))
+
+newdata3 <- within(newdata3, {
+    PredictedProb <- plogis(fit)
+    LL <- plogis(fit - (1.96 * se.fit))
+    UL <- plogis(fit + (1.96 * se.fit))
+})
+
+testing_data$PredictedProb <- ifelse(testing_data$occurrence == 1, 1, 0)
+
+ggplot(newdata3, aes(x = Value, y = PredictedProb)) + 
+  geom_ribbon(aes(ymin = LL,ymax = UL), fill = 'red', alpha = 0.8) + 
+  geom_line(size = 1) +
+  geom_jitter(data = testing_data, aes(x = Value , y= PredictedProb), 
+             alpha = 0.025, shape = 19, 
+             height = 0.05, width = 0) +
+  labs(title="Binomial Regression with Prediction Intervals and Data",
+       x ="SDM Probability of Occurrence", y = "Occurrence") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylim(0,1) +
+  theme_classic()
+
+rm(newdata1, newdata2, newdata3)
 ```
 
 
