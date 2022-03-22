@@ -167,11 +167,11 @@ testing_set %>% group_by(binomial) %>%
   print()
 rownames(testing_set) <- NULL
 
-rm(true_abs, presences_L, true_abs_L, presences_L, true_abs_L, pseudo_abs)
+rm(true_abs, presences_L, true_abs_L, pseudo_abs)
 ```
 
 
-```{r Extract SDM predictions to independent Presence/Absence Records}
+```{r Extract SDM predictions to independent Presence/Absence Records, eval = F}
 
 stacks <- names(predictions_stack) 
 stacks <- gsub("_glm.*", "", stacks)
@@ -183,30 +183,48 @@ positions <-intersect(stacks,species)
 
 # subset the evaluation data
 testing_set <-testing_set %>% 
-  filter(binomial %in% positions)
-
+  filter(binomial %in% positions) %>% 
+  st_transform(predictions_stack@crs@projargs)
+testing_set_L <- split(testing_set, ~binomial) 
 # to subset the raster stack to the species records
 to_sub <- match(positions, stacks)
 predictions_stack <- predictions_stack[[to_sub]]
 
-extract_predictions <- function(eval_data, rstack){
-  
-  # Inputs: eval_data = sf/tibble/dataframe of all independent 
-  # rstack = raster stack of all ensemble predictions
-  
-  all_GAM <- raster::subset(rstack, grep(binomial, names(my_stack), value = T))
-  #values <- raster
-
-
+# we now run a one to one extraction. 
+values_data <-  vector(mode = "list", length = length(testing_set_L))
+names(values_data) <- positions
+for (i in 1:length(testing_set_L)){
+  values_data[[i]] <- raster::extract(predictions_stack[[i]], testing_set_L[[i]],
+                                      df = T)
 }
 
-rm(stacks, species, positions, to_sub)
+# names(values_data) <- positions
+values_data <- values_data %>% 
+  map(~ rename(., Value = 2)) %>%
+  bind_rows(., .id = "binomial")
+
+testing_data <- testing_set %>% 
+  st_drop_geometry( ) %>% 
+  dplyr::select(occurrence) %>% 
+  cbind(., values_data) %>%  
+  dplyr::select(-ID)
+
+write.csv(testing_data, paste0(here() , '/data/processed/logistic_regression_theshold_data.csv'), row.names = F)
+
+rm(stacks, species, positions, to_sub, i, testing_set_L)
 ```
 
+
+```{r clean up environment from processed data}
+rm(AIM, ecoregion_bound, predictions_stack, presences, values_data, testing_set)
+```
+
+# Run models
 
 ```{r}
-
+testing_data <- read.csv(paste0(here() , '/data/processed/logistic_regression_theshold_data.csv'))
 ```
+
 
 
 
