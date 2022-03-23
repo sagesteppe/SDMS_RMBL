@@ -40,7 +40,7 @@ AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quie
   dplyr::select(-data)
 ```
 
-We will scrape GBIF for some new records to test our preidcictions against. 
+We will scrape GBIF for some new records to test our predictions against. 
 ```{r check GBIF for new presence records, eval = F}
 wkt_boundary <-  ecoregion_bound %>%  
   st_transform(4326) %>% 

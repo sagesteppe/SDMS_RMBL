@@ -98,13 +98,17 @@ extracted_values <- extracted_values %>%
 ggplot(extracted_values, aes(value, fill = Stat)) +
   geom_histogram()
 
-filter(extracted_values, Stat == 'Mean' & value <= 0.5) 
-filter(extracted_values, Stat == '3rd Qu.' & value <= 0.5) 
 ```
 
 
 
 
+```{r species to remove, echo = F}
+
+removals <- extracted_values %>% 
+  filter( Stat == 'Mean' & value <= 0.5) %>% 
+  filter( Stat == '3rd Qu.' & value <= 0.5) 
+```
 
 
 
