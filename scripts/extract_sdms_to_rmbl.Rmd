@@ -13,7 +13,6 @@ library(sf) # spatial data compliant with tidyverse
 library(raster) # raster data
 library(here)
 
-source(here::here('scripts/sdm_functions.R'))
 set.seed(12)
 ```
 
@@ -24,8 +23,7 @@ list.files(paste0(here(), '/results/maps/'),
 predictions_stack <- raster::stack(predictions_stack)
 ```
 
-```{r Import Site data}
-
+```{r Import Site data, warning=F}
 sites <- paste0(here(), '/data/processed/', 
 list.files(paste0(here(), '/data/processed/'), 
            pattern = 'Bombus_site_occurences.shp'))
@@ -33,14 +31,14 @@ sites <- st_read(sites, quiet = T) %>% dplyr::select(site)
 sites_cent <- st_centroid(sites)
 ```
 
-```{r Create Minimum Spanning Tree to Connect Sites}
+```{r Create Minimum Spanning Tree to Connect Sites, warning=F}
 dist_nb <- knn2nb(knearneigh(sites_cent, k=3))
 listw <- nb2listw(dist_nb, style="B")
 mst.bh <- mstree(listw,2)
 
-plot(st_geometry(sites), border=gray(.5))
-plot(mst.bh, coordinates(as(sites, "Spatial")), col=2, 
-     cex.lab=.6, cex.circles=0.035, fg="blue", add=TRUE)
+#plot(st_geometry(sites), border=gray(.5))
+#plot(mst.bh, coordinates(as(sites, "Spatial")), col=2, 
+#     cex.lab=.6, cex.circles=0.035, fg="blue", add=TRUE)
 
 mst.bh <- mst.bh[,1:2]
 colnames(mst.bh) <- c('From','To')
@@ -65,17 +63,52 @@ lines <- lines %>% st_as_sf(crs = 32613)
 st_crs(lines) <- 32613
 st_geometry(lines) <- 'geometry'
 
-rm(dist_nb, coords, listw, mst.bh, i)
+rm(dist_nb, coords, listw, mst.bh, i, sites_cent)
 ``` 
 
 now we will  buffer the minimum spanning tree
 
 ```{r buffer msp}
-study_area <- st_buffer(lines, dist = 400, endCapStyle = 'ROUND', 
-                        joinStyle = 'ROUND') %>% st_union()
+study_area <- st_buffer(lines, dist = 350, endCapStyle = 'ROUND', 
+                        joinStyle = 'ROUND') %>% st_union() %>% 
+  st_as_sf()
 
 ggplot(study_area) +
   geom_sf() +
   geom_sf(data = sites, aes(fill = site))
+
+rm(lines)
 ```
+
+```{r Extract SDM preidctions to polygons underlaying the area}
+
+extracted_values <- raster::extract(predictions_stack, study_area)
+extracted_values <- data.frame(extracted_values)
+names(extracted_values) <- gsub("_glm.*", "", names(extracted_values))
+names(extracted_values) <- make.unique(names(extracted_values), "_")
+sample_size <- nrow(extracted_values) 
+
+extracted_values <- extracted_values %>% summarise(across(1:ncol(.), summary))
+rownames(extracted_values) <- names(summary(c(1))) 
+extracted_values <- extracted_values %>% 
+  rownames_to_column('Stat') %>%  
+  pivot_longer(!Stat) %>% 
+  mutate(value = as.numeric(value))
+
+ggplot(extracted_values, aes(value, fill = Stat)) +
+  geom_histogram()
+
+filter(extracted_values, Stat == 'Mean' & value <= 0.5) 
+filter(extracted_values, Stat == '3rd Qu.' & value <= 0.5) 
+```
+
+
+
+
+
+
+
+
+
+
 
