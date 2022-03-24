@@ -119,10 +119,19 @@ rm(areas_occupied)
 
 ```{r}
 GGally::ggpairs(data[, c(4:6, 10:11,13:14)])
+
+
+area_prop <- lm(log(Prop_PA) ~ area, data = data)
+plot(log(data$Prop_PA) ~ data$area,
+    main = "Relationship between Area and Proportion of Presence to Absences", 
+    xlab = 'Area', ylab = 'Proportion Presence to Absence',  
+    yaxt = "n", pch =23, bg="grey85", col = 'grey35')
+axis(side = 2,
+     las = 2)
+abline(area_prop, untf = F, lwd = 3)
 ```
 
 As expected, we see that the three evaluation of model fit criteria, Area Under the Curve (AUC), the True Skill Statistic (TSS), and Kappa are high correlated. Area has significant correlations with all variables examined here, and has strong negative correlations with the evaluation criteria AUC, TSS, and Kappa, as well as with the Proportion of records which are Presences to Absences.
-
 
 ```{r Relationship between evaluation metrics}
 colors <- c("#56B4E9", "#E69F00")
