@@ -12,6 +12,7 @@ library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
 library(raster) # raster data
 library(here)
+library(spdep)
 
 set.seed(12)
 ```
@@ -95,8 +96,16 @@ extracted_values <- extracted_values %>%
   pivot_longer(!Stat) %>% 
   mutate(value = as.numeric(value))
 
-ggplot(extracted_values, aes(value, fill = Stat)) +
-  geom_histogram()
+
+extracted_values  %>% 
+  mutate(value = if_else(value < 0, 0, value)) %>% 
+  mutate(value = if_else(value > 1, 1, value)) %>% 
+  ggplot() +
+  geom_density(aes(value, fill = Stat), position="stack") +
+  labs(title="Summary of Suitable Habitat from SDM's in Elk River Valley",
+        x ="Probability of Suitable Habitat", y = "Density") +
+  theme_bw() +
+  xlim(0,1)
 
 ```
 
@@ -106,7 +115,7 @@ ggplot(extracted_values, aes(value, fill = Stat)) +
 ```{r species to remove, echo = F}
 
 removals <- extracted_values %>% 
-  filter( Stat == 'Mean' & value <= 0.5) %>% 
+#  filter( Stat == 'Mean' & value <= 0.5) #%>% 
   filter( Stat == '3rd Qu.' & value <= 0.5) 
 ```
 

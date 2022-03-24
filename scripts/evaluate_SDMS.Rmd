@@ -69,7 +69,7 @@ PA_REG_DF_spatial <- sf::read_sf(here("data/processed/Pseudo_absences_regression
 
 PA_REG_DF <- PA_REG_DF_spatial %>% 
   sf::st_drop_geometry() %>% 
-  select(1:4) %>% 
+  dplyr::select(1:4) %>% 
   group_by(binomial) %>% 
   mutate(occurrence = ifelse(occurrence == 2, 0, occurrence)) %>% 
   mutate(Data_type = case_when(
@@ -121,24 +121,26 @@ rm(areas_occupied)
 GGally::ggpairs(data[, c(4:6, 10:11,13:14)])
 ```
 
+As expected, we see that the three evaluation of model fit criteria, Area Under the Curve (AUC), the True Skill Statistic (TSS), and Kappa are high correlated. Area has significant correlations with all variables examined here, and has strong negative correlations with the evaluation criteria AUC, TSS, and Kappa, as well as with the Proportion of records which are Presences to Absences.
+
 
 ```{r Relationship between evaluation metrics}
 colors <- c("#56B4E9", "#E69F00")
 colors <- colors[as.factor(data$Model)]
-scatterplot3d::scatterplot3d(data[,4:6], pch = 5, color = colors,  grid=TRUE, type="p")
+scatterplot3d::scatterplot3d(data[,4:6], pch = 5, color = colors,  grid=TRUE, type="p") # "h" to see connection of points to ground for z dimension.
 ```
 
 ```{r Do seperate modelling runs give similar model evaluation statistics}
 
-data %>% 
+ensemble_dupes <- data %>% 
   distinct(Taxon, modelID, Event, .keep_all = T) %>% 
-  select(Taxon, modelID, TSS, Event) %>% 
+  dplyr::select(Taxon, modelID, TSS, Event) %>% 
   group_by(Taxon) %>% 
   mutate(evaluation_mean = sum(Event)/n()) %>% 
   filter(evaluation_mean != Event) %>% 
-  mutate(Group = ifelse(Event < evaluation_mean, 'A', 'B')) %>% 
+  mutate(Group = ifelse(Event < evaluation_mean, 'A', 'B'))
   
-  ggplot(aes(as.factor(Group), TSS))+
+ggplot(ensemble_dupes, aes(as.factor(Group), TSS))+
   geom_boxplot(notch = T, outlier.shape = 1) +
   geom_jitter(alpha = 0.5, width = 0.2) +
   theme_classic(base_size = 10) +
@@ -146,8 +148,17 @@ data %>%
        y = 'True Skill Statistic (TSS)', x = 'Groups, 50 species replicated') +
   theme(plot.title = element_text(hjust = 0.5))
 
-```
+grpA <- filter(ensemble_dupes, Group == 'A') %>% pull(TSS)
+grpB <- filter(ensemble_dupes, Group == 'B') %>% 
+  pull(TSS) %>% 
+  sample(length(grpA))
 
+# dependent 2-group Wilcoxon Signed Rank Test
+wilcox.test(grpA,grpB,paired=TRUE)
+
+rm(grpA, grpB)
+```
+Using a dependent Wilcoxon signed rank test different modelling runs appear unlikely to give substantially different results for the models which were run.
 
 # Analyses
 
@@ -157,7 +168,7 @@ How long does it take to run an ensemble forecast? # THIS DOES NOT MAKE TOTAL SE
 
 how_long <- data %>% 
   distinct(Taxon, Event, modelID, .keep_all = T)  %>% 
-  select(Taxon, modelID, Model, Event, Duration) %>% 
+  dplyr::select(Taxon, modelID, Model, Event, Duration) %>% 
   na.omit() %>% 
   group_by(Taxon, Event) %>% 
   mutate(Number_Models = n()) %>% 
@@ -230,8 +241,6 @@ ggplot(data_pres, aes(x = Prop_PA, y = TSS, color = Model))+
        y = 'TSS', x = 'Proportion of Presence records to Absence Records') +
   theme(plot.title = element_text(hjust = 0.5))
 ```
-
-
 Do the accuracy of models decrease with increases in the geographic extent which the species ranger covers in the study area?
 
 ```{r}
@@ -251,7 +260,7 @@ How does variance affect model fit?
 ```{r}
 
 variance_df <- data %>% 
-  select(Taxon, modelID, TSS, Model) %>% 
+  dplyr::select(Taxon, modelID, TSS, Model) %>% 
   distinct(.keep_all = T) %>% 
   left_join(., shout, by = c('Taxon' = 'binomial'))
   

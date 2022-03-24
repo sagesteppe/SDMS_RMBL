@@ -515,14 +515,15 @@ variance_calcs  <- function(x){
 
   # prettify results
   results <- rbind(standard_err, variance, percentiles)
-  length_col <- as.data.frame(results) %>% select(where(not_all_na))
+  length_col <- as.data.frame(results) %>% dplyr::select(where(not_all_na))
   length_col <- ncol(length_col)
   results <- rowSums(results, na.rm = T)/length_col
   results <- cbind(binomial, results)
   results <- cbind(t(data.frame('SE','VAR','IQR')), results)
   row.names(results) <- NULL
   colnames(results) <- c('Dispersion', 'binomial', 'Value')
-  results <- as.data.frame(results) %>% mutate(across(.cols = 3:ncol(results), as.numeric))
+  results <- as.data.frame(results) %>%
+    mutate(across(.cols = 3:ncol(results), as.numeric))
   
   return(results)
 }
