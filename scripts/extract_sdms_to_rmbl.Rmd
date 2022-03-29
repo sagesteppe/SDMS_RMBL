@@ -2,11 +2,21 @@
 title: "Extract SDM's to RMBL"
 author: "steppe"
 date: "3/22/2022"
-output: pdf_document
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    includes:
+      in_header: float_free.tex
+  word_document: default
+
 ---
 
-Finally, we can extract SDMs to the field sites near the Rocky Mountain Biological Laboratory.
+\tableofcontents 
+\listoffigures
+\listoftables
 
+Finally, we can extract SDMs to the field sites near the Rocky Mountain Biological Laboratory. This is the final step in this portion of the project.
 ```{r load libraries, results='hide', message=F, warning=F}
 library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
@@ -17,14 +27,14 @@ library(spdep)
 set.seed(12)
 ```
 
-```{r Create Raster Stack of Predictons}
+```{r Create Raster Stack of Predictons, echo = F}
 predictions_stack <- paste0(here(), '/results/maps/',
 list.files(paste0(here(), '/results/maps/'),
            pattern = "*.tif$" ))
 predictions_stack <- raster::stack(predictions_stack)
 ```
 
-```{r Import Site data, warning=F}
+```{r Import Site data, warning=F, echo = F}
 sites <- paste0(here(), '/data/processed/', 
 list.files(paste0(here(), '/data/processed/'), 
            pattern = 'Bombus_site_occurences.shp'))
@@ -32,7 +42,8 @@ sites <- st_read(sites, quiet = T) %>% dplyr::select(site)
 sites_cent <- st_centroid(sites)
 ```
 
-```{r Create Minimum Spanning Tree to Connect Sites, warning=F}
+Given that the points more or less follow the lower slopes of the valleys, we will use them to quickly create a elongated polygon feature which occupies the valley. To do this I utilize a Minimum Spanning Tree algorithm, and manually select the neighbors between all sites, and the origin point for the spannning tree.
+```{r Create Minimum Spanning Tree to Connect Sites, warning=F, echo = F}
 dist_nb <- knn2nb(knearneigh(sites_cent, k=3))
 listw <- nb2listw(dist_nb, style="B")
 mst.bh <- mstree(listw,2)
@@ -52,7 +63,6 @@ coords <- sites_cent %>%
 mst.bh <- as.data.frame(mst.bh)
 lines <- data.frame(matrix(ncol=1, nrow=5))
 for (i in 1:nrow(mst.bh)){
-  
    lines[i,] <-  st_linestring(matrix(c(coords[mst.bh[i,1],2], coords[mst.bh[i,2],2], 
                        coords[mst.bh[i,1],3], coords[mst.bh[i,2],3]),
                      2, 2)) %>% 
@@ -67,21 +77,56 @@ st_geometry(lines) <- 'geometry'
 rm(dist_nb, coords, listw, mst.bh, i, sites_cent)
 ``` 
 
-now we will  buffer the minimum spanning tree
-
-```{r buffer msp}
-study_area <- st_buffer(lines, dist = 350, endCapStyle = 'ROUND', 
-                        joinStyle = 'ROUND') %>% st_union() %>% 
+```{r buffer minimum spanning tree, echo = F, message = F, warning = F}
+study_area <- st_buffer(lines, dist = 400, endCapStyle = 'ROUND', 
+                        joinStyle = 'ROUND') %>% 
+  st_union() %>% 
   st_as_sf()
 
-ggplot(study_area) +
-  geom_sf() +
-  geom_sf(data = sites, aes(fill = site))
+site_bbox <- study_area %>% 
+  st_buffer(250) %>% 
+  st_transform(4326) %>% 
+  st_bbox(sites)
+names(site_bbox) <- c('left', 'bottom', 'right', 'top')
+basemap <- ggmap::get_stamenmap(site_bbox, zoom = 14, maptype = "terrain", messaging = F)
+
+ggmap::ggmap(basemap) +
+  geom_sf(data = study_area,
+          alpha = 0.5,
+          fill = "chocolate2",
+          color = "chocolate2",
+          show.legend = "line",
+          size = 1.2,
+          inherit.aes = FALSE) +
+  coord_sf(crs = st_crs(4326)) 
 
 rm(lines)
 ```
 
-```{r Extract SDM preidctions to polygons underlaying the area}
+```{r, eval = F}
+
+j_sites_buf <- study_area %>% 
+  st_transform(32613) %>% 
+  st_buffer(1000)
+
+sdp_prods <- 
+  read.csv("https://www.rmbl.org/wp-content/uploads/2021/04/SDP_product_table_4_26_2021.csv")
+
+slope_angle_uri <- sdp_prods %>%
+   filter(Product == 'Topographic Slope Angle') %>%
+   pull(Data.URL)
+slope_angle_path <- paste0("/vsicurl/", slope_angle_uri)
+slope_angle <- raster(slope_angle_path, progress='text')
+slope_angle <- crop(slope_angle, extent(j_sites_buf))
+
+writeRaster(slope_angle, paste0(here(),"/data/raw/Slope_angle"))
+rm(slope_angle_uri, slope_angle_path, slope_angle)
+```
+
+
+
+
+```{r Extract SDM predictions to polygons underlaying the area, echo = F}
 
 extracted_values <- raster::extract(predictions_stack, study_area)
 extracted_values <- data.frame(extracted_values)
@@ -96,13 +141,12 @@ extracted_values <- extracted_values %>%
   pivot_longer(!Stat) %>% 
   mutate(value = as.numeric(value))
 
-
 extracted_values  %>% 
   mutate(value = if_else(value < 0, 0, value)) %>% 
   mutate(value = if_else(value > 1, 1, value)) %>% 
   ggplot() +
   geom_density(aes(value, fill = Stat), position="stack") +
-  labs(title="Summary of Suitable Habitat from SDM's in Elk River Valley",
+  labs(title="Summary of Suitable Habitat from SDM's in East River Valley",
         x ="Probability of Suitable Habitat", y = "Density") +
   theme_bw() +
   xlim(0,1)
@@ -110,18 +154,23 @@ extracted_values  %>%
 ```
 
 
-
-
 ```{r species to remove, echo = F}
 
 removals <- extracted_values %>% 
-#  filter( Stat == 'Mean' & value <= 0.5) #%>% 
-  filter( Stat == '3rd Qu.' & value <= 0.5) 
+  filter( Stat == 'Mean' & value <= 0.5) %>% 
+  filter(str_detect(name, '_1',negate= T))
+
+targets <- extracted_values %>% 
+  filter(Stat == 'Mean' & value >= 0.5) %>% 
+  filter(str_detect(name, '_1',negate= T))
 ```
 
 
 
 
+REFERENCES:
+
+R. C. Prim (1957) Shortest connection networks and some generalisations. In: Bell System Technical Journal, 36, pp. 1389-1401
 
 
 

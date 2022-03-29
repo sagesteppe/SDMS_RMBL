@@ -18,7 +18,7 @@ output:
 
 # Import and Wrangle Data
 
-```{r load libraries, results='hide', message=F, warning=F}
+```{r load libraries, results='hide', message=F, warning=F, echo = F}
 library(tidyverse) # data tidying
 library(here)
 set.seed(12)
@@ -26,8 +26,7 @@ set.seed(12)
 source(here::here('scripts/sdm_functions.R'))
 ```
 
-Pull in the model evaluation data
-```{r Import and wrangle data}
+```{r Import and wrangle data, echo = F}
 fnames <- paste0(paste0(here(), '/results/stats/'),
        list.files(paste0(here(), '/results/stats/'), pattern = '*glm')
 )
@@ -48,8 +47,7 @@ data <- do.call("rbind", sapply(fnames, read.csv, simplify = FALSE)) %>%
 rm(fnames)
 ```
 
-Create diff time objects to study how long it took to produce each ensemble forecast. 
-```{r}
+```{r Create diff time objects to study how long it took to produce each ensemble forecast, echo = F}
 
 data_diff_time <- data %>% 
   distinct(Taxon, Event, .keep_all = T) %>% 
@@ -63,8 +61,8 @@ data <-left_join(data, data_diff_time, by = c('Taxon', 'Event'), copy = F)
 rm(data_diff_time)
 ```
 
-Pull in the data which were used to generate the models.
-```{r}
+
+```{r Pull in the data which were used to generate the models, echo = F, warning = F}
 PA_REG_DF_spatial <- sf::read_sf(here("data/processed/Pseudo_absences_regression.shp")) 
 
 PA_REG_DF <- PA_REG_DF_spatial %>% 
@@ -91,9 +89,8 @@ data <-left_join(data, PA_REG_DF, by = c('Taxon' = 'binomial'), copy = F)
 
 rm(PA_REG_DF)
 ```
-Calculate three metrics of dispersion for the environmental presence data
 
-```{r}
+```{r Calculate three metrics of dispersion for the environmental presence data, echo = F}
 PA_REG_DF_spatial <- PA_REG_DF_spatial %>% 
   mutate(occurrence = ifelse(occurrence == 2, 0, occurrence)) %>% 
   filter(occurrence == 1)
@@ -102,9 +99,7 @@ spp_occurrence_REG_list <- split(PA_REG_DF_spatial, PA_REG_DF_spatial$binomial)
 shout <- bind_rows(lapply(spp_occurrence_REG_list, variance_calcs))
 ```
 
-Calculate the area occupied by the taxa within the study region
-
-```{r}
+```{r Calculate the area occupied by the taxa within the study region, echo = F}
 areas_occupied <- bind_rows(lapply(spp_occurrence_REG_list, total_area)) %>% 
   mutate(area = as.numeric(area)/10)
 data <- left_join(data, areas_occupied, by= c('Taxon' = 'binomial'))
@@ -112,15 +107,14 @@ data <- left_join(data, areas_occupied, by= c('Taxon' = 'binomial'))
 rm(areas_occupied)
 ```
 
-
-
 # Data Exploration
 
 
-```{r}
+```{r Pairs plots of variables, echo = F, warning =F}
 GGally::ggpairs(data[, c(4:6, 10:11,13:14)])
+```
 
-
+```{r Proportion of Presence to Absence records as predicted by area, echo = F}
 area_prop <- lm(log(Prop_PA) ~ area, data = data)
 plot(log(data$Prop_PA) ~ data$area,
     main = "Relationship between Area and Proportion of Presence to Absences", 
@@ -133,13 +127,14 @@ abline(area_prop, untf = F, lwd = 3)
 
 As expected, we see that the three evaluation of model fit criteria, Area Under the Curve (AUC), the True Skill Statistic (TSS), and Kappa are high correlated. Area has significant correlations with all variables examined here, and has strong negative correlations with the evaluation criteria AUC, TSS, and Kappa, as well as with the Proportion of records which are Presences to Absences.
 
-```{r Relationship between evaluation metrics}
+```{r Relationship between evaluation metrics, echo = F, warning = F}
 colors <- c("#56B4E9", "#E69F00")
 colors <- colors[as.factor(data$Model)]
-scatterplot3d::scatterplot3d(data[,4:6], pch = 5, color = colors,  grid=TRUE, type="p") # "h" to see connection of points to ground for z dimension.
+scatterplot3d::scatterplot3d(data[,4:6], pch = 5, color = colors,  grid=TRUE, type="p") 
+# "h" to see connection of points to ground for z dimension.
 ```
 
-```{r Do seperate modelling runs give similar model evaluation statistics}
+```{r Do seperate modelling runs give similar model evaluation statistics, echo = F, comment = ""}
 
 ensemble_dupes <- data %>% 
   distinct(Taxon, modelID, Event, .keep_all = T) %>% 
@@ -148,6 +143,24 @@ ensemble_dupes <- data %>%
   mutate(evaluation_mean = sum(Event)/n()) %>% 
   filter(evaluation_mean != Event) %>% 
   mutate(Group = ifelse(Event < evaluation_mean, 'A', 'B'))
+
+ed_db <- ensemble_dupes %>% 
+  dplyr::select(Taxon, Group, modelID, TSS) %>% 
+  pivot_wider(id_cols = c(Taxon, modelID), names_from = Group, values_from = TSS) %>% 
+  unite('Iteration', Taxon:modelID, sep = "-") %>% 
+  rowwise() %>% 
+  mutate('Mean' = sum(A+B, na.rm = T)/2) %>% 
+  arrange(Mean) %>% 
+  rowid_to_column() %>% 
+  drop_na()
+
+ggplot(ed_db, aes(y=rowid, x=A, xend=B)) +
+  ggalt::geom_dumbbell(size = 1.5, color="#e3e2e1",
+                colour_x = "deeppink4", colour_xend = "palegreen4",
+                dot_guide=TRUE, dot_guide_size=0.25) +
+  labs(x="TSS", y='SPECIES', title="Comparision of Species which have had two ensembles created") +
+  theme_minimal() +
+  theme(panel.grid.major.x=element_line(size=0.05))
   
 ggplot(ensemble_dupes, aes(as.factor(Group), TSS))+
   geom_boxplot(notch = T, outlier.shape = 1) +
@@ -165,7 +178,7 @@ grpB <- filter(ensemble_dupes, Group == 'B') %>%
 # dependent 2-group Wilcoxon Signed Rank Test
 wilcox.test(grpA,grpB,paired=TRUE)
 
-rm(grpA, grpB)
+rm(grpA, grpB, ed_db)
 ```
 Using a dependent Wilcoxon signed rank test different modelling runs appear unlikely to give substantially different results for the models which were run.
 
@@ -173,7 +186,7 @@ Using a dependent Wilcoxon signed rank test different modelling runs appear unli
 
 How long does it take to run an ensemble forecast? # THIS DOES NOT MAKE TOTAL SENSE AS TIME(GLM) =? TIME(GAM)
 
-```{r Duration of time required to ensemble forecasts}
+```{r Duration of time required to ensemble forecasts, echo = F}
 
 how_long <- data %>% 
   distinct(Taxon, Event, modelID, .keep_all = T)  %>% 
@@ -182,7 +195,21 @@ how_long <- data %>%
   group_by(Taxon, Event) %>% 
   mutate(Number_Models = n()) %>% 
   distinct(Taxon, Event, .keep_all = T)
-  
+```
+
+```{r Linear Regression of Time and Models, echo = F, comment = ""}
+summary(models_timed <- lm(Duration ~ Number_Models , data= how_long))
+
+plot(Duration ~ Number_Models, data = how_long,
+    main = "Number of models and time to Project an Ensemble", 
+    xlab = 'Number of Models', ylab = "Minutes",  
+    yaxt = "n", pch =23, bg="grey85", col = 'grey35')
+axis(side = 2,
+     las = 2)
+abline(models_timed,  lwd = 3)
+```
+
+```{r Binomial regression of number of models on duration, echo = F, comment = ""}
 ggplot(how_long, aes(as.factor(Number_Models), Duration))+
   geom_boxplot(notch = T, outlier.shape = 1) +
   geom_jitter(alpha = 0.5, width = 0.2) +
@@ -212,7 +239,7 @@ On average it looks like it may take 65% more time to ensemble a prediction as e
 
 Do the Number of Presence/Absences predict the accuracy of models ?
 
-```{r}
+```{r, echo = F, comment = ""}
 data_pres <- data %>% filter(occurrence_type == 'Presence')
 occurrence_pred_tss <- lm(TSS ~ occurrence_type_cnt, data = data)
 occ_pr_tss_sum <- summary(occurrence_pred_tss)
@@ -233,8 +260,7 @@ rm(data_pres, occurrence_pred_tss, occ_pr_tss_sum)
 
 Obviously more data does not make prediction worse, rather the root cause is likely to be the correlation between the number of records and the number of habitat types the species grows in. The more generalized a species, the more likely that a presence is to occur in an area deemed as predicted as absence. 
 
-
-```{r}
+```{r, echo = F, comment = ""}
 data_pres <- data %>% filter(occurrence_type == 'Presence')
 occurrence_pred_tss <- lm(TSS ~ Prop_PA, data = data)
 occ_pr_tss_sum <- summary(occurrence_pred_tss)
@@ -250,9 +276,9 @@ ggplot(data_pres, aes(x = Prop_PA, y = TSS, color = Model))+
        y = 'TSS', x = 'Proportion of Presence records to Absence Records') +
   theme(plot.title = element_text(hjust = 0.5))
 ```
-Do the accuracy of models decrease with increases in the geographic extent which the species ranger covers in the study area?
 
-```{r}
+Do the accuracy of models decrease with increases in the geographic extent which the species ranger covers in the study area?
+```{r echo = F}
 
 ggplot(data, aes(x = area, y = TSS, color = Model))+
   geom_jitter()+
@@ -266,7 +292,7 @@ rm(areas_occ)
 ```
 
 How does variance affect model fit? 
-```{r}
+```{r, comment=""}
 
 variance_df <- data %>% 
   dplyr::select(Taxon, modelID, TSS, Model) %>% 
@@ -295,7 +321,7 @@ hmm not as expected, bigger sample size and more is explained,
 
 Let's try and fit a model
 
-```{r}
+```{r, comment = ""}
 
 ggplot(data, aes(round((-log(data$TSS))*100,0))) +
   geom_histogram()

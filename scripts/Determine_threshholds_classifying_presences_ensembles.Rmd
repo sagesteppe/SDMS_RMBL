@@ -17,7 +17,7 @@ set.seed(12)
 ```
 
 
-```{r Create Raster Stack of Predictons}
+```{r Create Raster Stack of Predictons, echo = F}
 predictions_stack <- paste0(here(), '/results/maps/',
 list.files(paste0(here(), '/results/maps/'),
            pattern = "*.tif$" ))
@@ -25,7 +25,7 @@ predictions_stack <- raster::stack(predictions_stack)
 ```
 
 We will use the ecoregion bound to query GBIF for more presence records for testing ensembles for prediction thresholds. We will also used the records which were removed from the intial BIEN data due to high levels of spatial auto-correlation. 
-```{r Import Pruned Occurrence Records for Presences}
+```{r Import Pruned Occurrence Records for Presences, echo = F}
 pseudo_abs <- st_read(paste0(here(), '/data/processed/Pseudo_absences_regression.shp'), 
                       quiet = T)[,c(1:4,21)]
 recs_rm_spatial_auto <- pseudo_abs %>% filter(occurrence == 2)
@@ -35,13 +35,13 @@ ecoregion_bound <- st_read(paste0(here(),'/data/processed/SoRo_ecoregion_bound.s
 ```
 
 We will also import the AIM dataset to feed in more true absences. 
-```{r Import BLM data for more True Absence Records}
+```{r Import BLM data for more True Absence Records, echo = F}
 AIM <- st_read(paste0(here(),'/data/processed/AIM_Records_study_area.shp'), quiet = T) %>% 
   dplyr::select(-data)
 ```
 
 We will scrape GBIF for some new records to test our predictions against. 
-```{r check GBIF for new presence records, eval = F}
+```{r check GBIF for new presence records, eval = F, echo = F}
 wkt_boundary <-  ecoregion_bound %>%  
   st_transform(4326) %>% 
   dplyr::select(ncol(.)) %>% 
@@ -61,7 +61,7 @@ rm(wkt_boundary, species_vec)
 rm(list=lsf.str())
 ```
 
-```{r determine which GBIF records are duplicates of BIEN records, eval = F}
+```{r determine which GBIF records are duplicates of BIEN records, eval = F, echo = F, message = F}
 
 gbif <- st_read(paste0(here(),'/data/raw/gbif_data.shp'), quiet = T)
 gbif <- gbif %>% separate(scntfcN, c("genus", "epithet"), 
@@ -103,7 +103,7 @@ rm(true_recs)
 ```
 
 
-```{r followup gbif cleaning to remove duplicates, eval = F}
+```{r followup gbif cleaning to remove duplicates, eval = F, echo =F}
 gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T)
 
 gbif <- gbif %>% filter(occrrnS == 'PRESENT') %>% 
@@ -114,7 +114,7 @@ gbif <- gbif %>% filter(occrrnS == 'PRESENT') %>%
 st_write(gbif, paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T, append = F)
 ```
 
-```{r join new GBIF data with thinned data and draw new absences}
+```{r join new GBIF data with thinned data and draw new absences, echo =F}
 gbif <- st_read( paste0(here(),'/data/processed/gbif_data_clean.shp'), quiet = T) %>% 
   dplyr::select(binomial) %>% 
   mutate(PlotKey = "") %>% 
@@ -130,7 +130,7 @@ rm(gbif, recs_rm_spatial_auto)
 ```
 
 Process united data set to assess validity for binomial logistic regression
-```{r clean dataset for logistic regression}
+```{r clean dataset for logistic regression, echo = F}
 # we need at least 10 absence and presences to run a binomial logistic regression
 presences <- presences %>% 
   add_count(binomial) %>% 
@@ -141,7 +141,7 @@ presences <- presences %>%
 ```
 
 obtain BLM absences to generate our full test set for regression
-```{r collect BLM absences}
+```{r collect BLM absences, echo = F}
 true_abs <- pseudo_abs %>%
   filter(!is.na(PlotKey) & occurrence == 0) 
 
@@ -230,7 +230,7 @@ testing_data <- testing_data %>%
 ```
 
 split data set
-```{r split data set}
+```{r split data set, echo = F}
 index <- caret::createDataPartition(testing_data$occurrence, p = .70, list = FALSE)
 train <- testing_data[ index, ]
 test  <- testing_data[-index, ]
@@ -238,7 +238,7 @@ rm(index)
 ```
 
 
-```{r fit model}
+```{r fit model, echo = F}
 allspecies_log <- glm(occurrence ~ Value, data = train, family = "binomial")
 mod_sum <- broom::tidy(allspecies_log)
 mod_sum$p.value <- '< 0.001'
@@ -254,7 +254,7 @@ knitr::kable(model_sum_tab)
 ```
 
 We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
-```{r Classification Table. echo = F}
+```{r Classification Table, echo = F}
 pred_prob <- predict(allspecies_log, test, type = "response")
 
 # Create a probabiliy table for the TRAINING Data
@@ -276,7 +276,7 @@ knitr::kable(ctab_report)
 rm(ctab_report)
 ```
 
-```{r Model Diagnostics}
+```{r Model Diagnostics, echo = F}
 accuracy_train <- sum(diag(ctab_train))/sum(ctab_train)*100
 accuracy_test <- sum(diag(ctab_test))/sum(ctab_test)*100
 # Calculate the True Positive Rate
@@ -297,24 +297,23 @@ concordance <- InformationValue::Concordance(allspecies_log$y,
 conc <- concordance[["Concordance"]]
 disc <- concordance[["Discordance"]]
 tied <- concordance[["Tied"]]
-pair <- concordance[["Pairs"]]
 
 evaluation_table <- data.frame(
   'Metric' = c('Accuracy (Training)','Accuracy (Test)','Recall',
                           'True Neg. Rate','Precision', 'F-Score', 'AUC', 
-                          'Concordance', 'Discordance', 'Tied', 'Pairs'),
+                          'Concordance', 'Discordance', 'Tied'),
            'Value' = c(accuracy_train, accuracy_test, Recall, TNR, 
                        Precision, F_Score, as.numeric(roc[["auc"]]),
-                       conc, disc, tied, pair)
+                       conc, disc, tied)
   )
 
-evaluation_table$Value <- format(round(as.numeric(evaluation_table$Value), 2), nsmall = 2)
+evaluation_table$Value <- round(evaluation_table$Value, 2)
 knitr::kable(evaluation_table)
 
 rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pair, ctab_train, ctab_test, evaluation_table)
 ```
 
-```{r create prediction plot}
+```{r create prediction plot, warning = F, echo = F}
 
 newdata1 <- with(testing_data, data.frame(Value = mean(Value)))
 newdata1$probability <- predict(allspecies_log, newdata = newdata1, type = "response")

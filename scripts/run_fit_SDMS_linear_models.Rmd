@@ -16,6 +16,8 @@ output:
 \listoftables
 
 
+This is simply the dedicated script where I run the modelling for SDM's for. 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -26,13 +28,11 @@ library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
 library(raster) # raster data
 library(here)
-
 source(here::here('scripts/sdm_functions.R'))
 set.seed(12)
 ```
 
-
-```{r}
+```{r Develop Raster Stack, echo = F}
 names_vec <- c('PCL_MAN','PCL_SE1','PCL_SE2','PCL_SE3','PCM_BFP','PCM_CMD',
                   'PCM_DD5', 'PCM_MAP','PCM_PAS','PCM_TD','PCT_ECO','PCT_EFW',
                   'PLC_HRB', 'PLC_TRE', 'PLC_URB', 'PSL_BDR', 'PSL_CAR', 
@@ -50,7 +50,7 @@ geo_proj = crs(WPDPV2)
 rm(WPDPV, target, names_vec)
 ```
 
-```{r}
+```{r Read in Species Occurrence Data, echo = F}
 PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression.shp"))
 PA_REG_DF %>% pull(binomial) %>% unique()
 ```
@@ -61,12 +61,12 @@ Here we use the True Skill Statistic (TSS) statistic to develop our weighted ens
 
 Allouche, O., Tsoar, A., Kadmon, K. "Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS)" 2006. Journal of Applied Ecology 43: 1223-1232.  
 
-```{r}
+```{r Run BLM/GAM based modelling, echo = F}
 
 PA_REG_DF1 <- split(PA_REG_DF, f = PA_REG_DF$binomial)
 
 Sys.time()
-lapply(PA_REG_DF1[252], Linear_SDM) # skipped #3 & # 112
+lapply(PA_REG_DF1[343:346], Linear_SDM) # skipped #3 & # 112
 Sys.time()
 
 ```
