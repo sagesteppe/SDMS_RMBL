@@ -1,0 +1,135 @@
+---
+title: "species records rings"
+author: "steppe"
+date: "3/31/2022"
+output: pdf_document
+---
+
+# Create a set of Polygons for searching the area around the study area to generate a species presence or absence list.
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(here)
+set.seed(12)
+```
+
+### A review of the basics geometry of an annulus and circle
+
+Where the area of an annulus is calculated as:
+$$
+A = π(R^2 - r^2)
+$$
+
+In an example where the smallest radii of a circle is 10 km, and the annulus is 5 km.
+
+$ A = π(15^2 - 10^2) = 138.23008 $
+
+To determine the relationship between the area of the annulus and the circle within we may divide the area of the circle by that of that of the annulus.
+$$
+ \frac{A = π(r^2)}{A = π(R^2 - r^2)}
+$$
+
+$ 138.23008 / 314.2857  = 0.439823$
+
+Our annulus in this example is then 0.43 times the size of the original circle.
+
+### The numerical constant to createa circles doubled in size 
+
+We want to double the area, and in order to do so, we’ll have to multiply the radius by some constant.
+I will use *'d'* to represent the constant we want to *double the area* of a set of circles.
+
+$2A = π(dr)^2$
+
+$2A = πd^2r^2$
+
+We may then replace A and the equivalent pi r squared
+$2n = nd^2$
+
+$2 = d^2$
+
+$d = \sqrt 2 $
+
+$d = 1.414214$
+
+# Create many circle which double in radius
+
+We will define the center of Gothic as such:
+```{r}
+Gothic <- tibble(
+                 x = -106.98945,
+                 y  = 38.95869
+                 ) %>% 
+  st_as_sf(coords = c(x = 'x', y = 'y'), 
+           crs = 4326) %>% 
+  st_transform(32613)
+```
+
+Our initial circle around the site will be 30 kilometers in diameter (18.6 miles), in my experience in an mountainous area this should return a *good many records of common* material.
+
+Here we will also show the accuracy of circles drawn in a UTM system to deal with the geometric idea of a perfect circle
+```{r determine accuracy of buffered distances, comment = F}
+
+gothic1 <- Gothic %>% st_buffer(15000)
+
+writeLines(paste0('A geometric circle is: ', 
+       round((as.numeric(st_area(gothic1))) / (pi * 15000^2) * 100, 5),
+' as large as a geographic one with planar coordinates.'))
+
+rm(gothic1)
+```
+
+```{r Calculate values by hand to ensure accuracy, echo = F}
+#round(15000*(sqrt(2)), 0) #= 21213 # first annulus
+#round(21213*sqrt(2),0) #= 30000 # second annulus
+#round(30000*sqrt(2),0) # = 42426 # third annulus
+#round(42426*sqrt(2),0) # = 59999 # fourth annulus
+#round(59999*sqrt(2),0) # = 84851 # fifth
+#round(84851*sqrt(2),0) # = 119997 # sixth
+```
+
+```{r Calculate the radii required for equal area sampling, echo = F}
+future_value = function(iterations, frst_radius = 1, calculation = 0.1) {
+  frst_radius * calculation ^ (1:iterations)
+}
+
+radii = vector()
+radii <- future_value(iterations = 6, frst_radius = 15000, calculation = sqrt(2))
+radii2 <- tibble(radii) %>% 
+  rownames_to_column('Polygon') %>% 
+  mutate(Polygon = as.numeric(Polygon)+1) %>% 
+  rename('Radius' = radii)
+radius <- rbind(c('Polygon' = 1, radius = 15000), radii2)
+
+rm(future_value, radii, radii2)
+```
+
+
+```{r Create polygons for sending to BIEN server}
+poly_coords <- bind_cols(radius, Gothic) %>% 
+  st_as_sf()
+poly_coords <- st_buffer(poly_coords, poly_coords$Radius)
+
+ggplot(poly_coords) +
+  geom_sf(aes(fill = Polygon), alpha = 0.1)
+
+poly_coords <- st_transform(poly_coords, 4326) 
+
+rm(Gothic, radius)
+```
+
+```{r, eval = F}
+st_write(poly_coords, 
+         paste0(here(), '/data/processed/BIEN_polygons', Sys.Date(), '.shp'), 
+         quiet = T)
+
+rm(poly_coords)
+```
+
+
+
+# Make Requests to BIEN servers
+
+
+
+

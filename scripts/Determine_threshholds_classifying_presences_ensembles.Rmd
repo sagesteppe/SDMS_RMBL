@@ -348,3 +348,12 @@ rm(newdata1, newdata2, newdata3)
 ```
 
 
+## Model evaluate results using a gee or other
+
+- maybe but not sure of nice things like prediction tables... ?
+
+https://public.pensoft.net/items/?p=7TVeXpoqfNYT89tyrm3ifrTeG9Wv8P676JSQp%2FH2pj9hhtoybol4GF7LEbj3fxHT5Fo8esHsscAdZZZhYAyuGXOqT7k9Md4TUeAnjyvOFBDvYDE%3D&n=gB5kddQ8acsRsM1Z%2FSm8K%2B2EDty6
+https://onlinelibrary.wiley.com/doi/10.1111/j.2007.0906-7590.05171.x
+
+
+
