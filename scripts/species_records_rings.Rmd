@@ -127,9 +127,3 @@ rm(poly_coords)
 ```
 
 
-
-# Make Requests to BIEN servers
-
-
-
-
