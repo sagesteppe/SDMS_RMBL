@@ -104,7 +104,6 @@ radius <- rbind(c('Polygon' = 1, radius = 15000), radii2)
 rm(future_value, radii, radii2)
 ```
 
-
 ```{r Create polygons for sending to BIEN server}
 poly_coords <- bind_cols(radius, Gothic) %>% 
   st_as_sf()

@@ -1,0 +1,47 @@
+---
+title: "Download records from bien"
+author: "steppe"
+date: "3/31/2022"
+output: pdf_document
+---
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(here)
+library(BIEN)
+set.seed(12)
+```
+
+```{r import coords and prepare for upload to database}
+poly_coords <- st_read(
+  paste0(here(), '/data/processed/BIEN_polygons', Sys.Date(), '.shp'), 
+  quiet = T) 
+
+polygons <- split(poly_coords, ~Polygon) |>
+  lapply(as, 'Spatial')
+
+rm(poly_coords)
+```
+
+```{r prepare function to download values from server, eval = F}
+
+BIEN_downloader <- function(x){
+  
+  occurrences <- BIEN_occurrence_spatialpolygons(x)
+  occurrences <- st_as_sf(occurrences)
+  occs2write  <- bind_cols(occurrences, x$Radius) 
+
+  st_write(occs2write, 
+           paste0(here(), '/data/raw/BIEN_rcrds', x$Polygon, "_", Sys.Date(), '.shp')
+  )
+  
+  writeLines(
+    paste0('The ', x$Polygon, 'polygon has completed downloading as of: ', Sys.time())
+  )
+}
+
+BIEN_downloader(polygons)
+```
+
+
