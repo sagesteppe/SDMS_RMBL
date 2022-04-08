@@ -1,5 +1,5 @@
 ---
-title: "run_fit_SDMS_linear_models"
+title: "run and fit SDMs"
 author: "steppe"
 date: "3/10/2022"
 output:
@@ -43,14 +43,16 @@ names_vec <- c('PCL_MAN','PCL_SE1','PCL_SE2','PCL_SE3','PCM_BFP','PCM_CMD',
 WPDPV <- raster::stack("/hdd/Geospatial_data/Western_Plant_Predictors/SoRo_wppr_vers_two.tif")
 names(WPDPV) <- names_vec
 target <- c(2, 4,9, 10, 13, 14, 16, 19, 20, 23, 24, 25, 26, 27, 29, 30)
+target_ml <- c(1:10, 13:14, 16:20, 22:30)
 
 WPDPV2 <- WPDPV[[(target)]]
-geo_proj = crs(WPDPV2)
+WPDPV1 <- WPDPV[[(target_ml)]]
+geo_proj = crs(WPDPV)
 
-rm(WPDPV, target, names_vec)
+rm(WPDPV, target, target_ml, names_vec)
 ```
 
-```{r Read in Species Occurrence Data, echo = F}
+```{r Read in Species Occurrence Data, echo = F, eval = F}
 PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression.shp"))
 PA_REG_DF %>% pull(binomial) %>% unique()
 ```
@@ -59,15 +61,42 @@ PA_REG_DF %>% pull(binomial) %>% unique()
 
 Here we use the True Skill Statistic (TSS) statistic to develop our weighted ensemble from each of the predictions. We choose to use this has our primary diagnostic of model fit because it is able to work across a broad range of presence records. 
 
-Allouche, O., Tsoar, A., Kadmon, K. "Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS)" 2006. Journal of Applied Ecology 43: 1223-1232.  
+Allouche, O., Tsoar, A., Kadmon, K. "Assessing the accuracy of species distribution models: prevalence, kappa and the true skill statistic (TSS)" 2006. Journal of Applied Ecology 43: 1223-1232. 
+```{r Run BLM/GAM based modelling, echo = F, eval = F}
 
-```{r Run BLM/GAM based modelling, echo = F}
-
-PA_REG_DF1 <- split(PA_REG_DF, f = PA_REG_DF$binomial)
+PA_REG_DF1 <- split(PA_REG_DF, ~ binomial)
 
 Sys.time()
 lapply(PA_REG_DF1[366:373], Linear_SDM) # skipped #3 & # 112
 Sys.time()
 
 ```
+
+```{r}
+rm(WPDPV1)
+```
+
+
+## D. PART 3 Run fit SDMs with Machine learning
+
+Both Random Forests (RF) and Boosted Regression Trees (BRT) are simple forms of machine learning which have been shown to perform well using the the same proportion of presence to absence records (CITE). As RF's achieve re-sampling via bootstrap aggregation ('bagging') and BRT's ('boosting') 
+
+```{r Read in Species Occurrence Data, echo = F}
+PA_ML_DF <- read_sf(here("data/processed/Pseudo_absences_ML.shp"))
+PA_ML_DF %>% pull(binomial) %>% unique()
+```
+
+```{r Run RF-BRT based modelling, echo = F}
+
+PA_ML_DF1 <- split(PA_ML_DF, ~ binomial)
+rm(PA_ML_DF)
+
+Sys.time() 
+lapply(PA_ML_DF1[50:53], Machine_SDM) # skipped #3 & # 112
+Sys.time()
+
+```
+
+
+
 

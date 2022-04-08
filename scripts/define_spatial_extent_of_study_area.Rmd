@@ -55,3 +55,8 @@ rm(buffer_distance)
 
 writeOGR(ecoregion_bound, dsn = here('data/processed/'), layer = "SoRo_ecoregion_bound", driver = "ESRI Shapefile")
 ```
+
+```{r}
+rm(list = lsf.str())
+```
+

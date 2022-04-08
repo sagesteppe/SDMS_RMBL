@@ -207,7 +207,7 @@ true_absence_ML <- function(x){ # for collecting true absence records from BLM l
   
   taxon <- x %>% distinct(binomial) %>%  pull(binomial)
   taxon <- taxon[1]
-  TA_req <- round(x$no_record[1] * prop_blm, 0) # how many true absences needed?
+  TA_req <- round((x$no_record[1] * prop_blm)*1.2, 0) # how many true absences needed? # buffered for NA cells
   presence_PK <- x %>% pull(PlotKey) # which plots can absences not occur in because a presence is there?
   
   AIM_absence <- AIM_points %>% # remove plots with an occurrence of the taxon. 
@@ -309,6 +309,36 @@ random_PA_spatial <- function(x){
   out <- rbind(x, pseudo_abs)
   
 }
+
+
+############################
+### RANDOM PA ML SPATIAL ###
+############################
+
+random_PAML_spatial <- function(x){
+  
+  taxon <- x %>% pull(binomial)
+  taxon <- taxon[1]
+  no_pres <- x %>% filter(occurrence == 1) %>% nrow() 
+  PA_req <- round(no_pres * 5, 0) 
+  
+  x_buf <- st_buffer(x, 9000)
+  blm_cp_sUB <- st_erase(x_buf, blm_cp_s)
+  
+  pseudo_abs <- st_sample(blm_cp_sUB, size = PA_req, type = 'random', by_polygon = F) %>% 
+    st_as_sf() %>% 
+    mutate(occurrence = 0) %>% 
+    mutate(binomial = taxon) %>% 
+    mutate(PlotKey = NA) %>% 
+    rename('geometry' = x) %>% 
+    mutate(no_record = nrow(.))
+  
+  x <- st_centroid(x)
+  
+  out <- rbind(x, pseudo_abs)
+  
+}
+
 
 
 ###############
@@ -466,9 +496,45 @@ Linear_SDM <- function(x){
   evaluation <- getEvaluation(sdm_model, stat=c('TSS','Kappa','AUC'), wtest=c('training','test'), opt = 1)
   write.csv(evaluation, file = fname)
   
-  # Predictor variables importance
 }
 
+
+
+################
+# MACHINE SDM #
+################
+
+Machine_SDM <- function(x){
+  
+  binomial <-  x %>% pull(binomial)
+  binomial <- binomial[1]
+  taxon <- x %>% 
+    mutate(occurrence = case_when(occurrence == 2 | occurrence == 1 ~ 1,
+                                  occurrence == 0 ~ 0)) %>% 
+    dplyr::select(occurrence) %>% 
+    as(., "Spatial")
+  taxon = spTransform(taxon,geo_proj)
+  
+  
+  sdm_data_obj <- sdmData(formula=occurrence~., 
+                          train = taxon, 
+                          predictors = WPDPV2)
+  sdm_model <- sdm(formula = occurrence~., 
+                   data = sdm_data_obj, 
+                   methods = c('rf','brt'), replication='sub', test.percent=30, n=2)
+  
+  fname <- paste0(here(), '/results/maps/', binomial, "_ml_", Sys.time(),'.tif')
+  fname <- gsub(' ', '_', fname)
+  sdm_ensemble_prediction <- sdm::ensemble(sdm_model, WPDPV2, 
+                                           setting = list(method = "weighted", stat = 'tss', opt = 2), 
+                                           filename = fname)
+  
+  fname <- paste0(here(), '/results/stats/', binomial, "_ml_", Sys.time(),'.csv')
+  fname <- gsub(' ', '_', fname)
+  evaluation <- getEvaluation(sdm_model, stat=c('TSS','Kappa','AUC'), wtest=c('training','test'), opt = 1)
+  write.csv(evaluation, file = fname)
+  
+}
 
 
 ############################

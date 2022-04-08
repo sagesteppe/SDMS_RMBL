@@ -226,3 +226,7 @@ sum_stats %>% filter(Statistic == 'variance') %>%
 
 While there is a drastic range in the variance of these predictors, I do not remove features here such as Soil Class, which I anticipate to have very high correlations with occurrence records for building models. 
 
+```{r}
+rm(list = lsf.str())
+```
+

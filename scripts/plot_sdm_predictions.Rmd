@@ -1,0 +1,71 @@
+---
+title: "Plot SDM predictions"
+author: "steppe"
+date: "4/7/2022"
+output: pdf_document
+---
+
+```{r}
+library(tidyverse)
+library(raster)
+```
+
+
+```{r import datasets for comparing rasters - was bored so played around with this code, message = F}
+files <- list.files(paste0(here(), '/results/maps'), pattern = "tif$")
+
+linear = files[str_detect(files, 'glm')]
+machine = files[str_detect(files, 'ml')]
+
+ls <- list('linear' = linear,  'machine' = machine) 
+# so we can rerun this simply  as we tack on more species we will
+# create two equal length vectors for binding into a dataframe
+ls1 <- lengths(ls)
+length( # here we pad the shorted list with NA's
+  ls[[
+    names(ls[which.min(ls1)])
+    ]]
+  ) <- max(ls1)
+
+ls <- lapply(ls, data.frame) 
+ls <- bind_cols(ls)
+colnames(ls) <- c('linear', 'machine')
+
+ls <- ls %>% 
+  mutate(across(.cols = everything(), # create just a copy of the binomials
+                  .fns = list(binomial = ~ gsub("_ml_2022.*|_glm_2022.*|", "", .)),
+                  .names = "{fn}_{col}")
+         ) %>% 
+  mutate(across(!contains('binomial'),
+         ~ paste0(here(), '/results/maps/', .x)
+         ))
+
+# now ensure that the data are in the same order as each other...
+ls_mach <- ls %>% dplyr::select(contains('machine')) %>% drop_na()
+ls_line <- ls %>% dplyr::select(contains('linear'))
+
+# full here but may not end up being best option - inner may end up being best
+rasters <- full_join(ls_line, ls_mach,
+                     by = c("binomial_linear" =  "binomial_machine")
+                     ) %>% 
+  drop_na()
+
+# HERE WILL DEAL WITH DROPPING NA' ACROSS ALL GROUPS
+
+linear_stack <- raster::stack(rasters$linear)
+machine_stack <- raster::stack(rasters$machine)
+names(linear_stack) <- rasters$binomial
+names(machine_stack) <- rasters$binomial
+
+rm(ls, ls_mach, ls_line, linear, machine, files, ls1, rasters)
+```
+
+```{r Create composite rasters for visualization}
+
+lin_mean <- mean(linear_stack)
+mach_mean <- mean(machine_stack)
+mean_variances <- abs(lin_mean - mach_mean)
+# either way determine the absolute differences in mean predictions
+plot(mean_variances)
+```
+
