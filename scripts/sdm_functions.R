@@ -640,3 +640,72 @@ gbif_collector <- function(dataset){
   return(data)
   Sys.sleep(1)
 }
+
+
+############################
+###    BIEN_downloader   ###
+############################
+
+
+#polygons <- split(poly_coords, ~Polygon) |>
+#  lapply(as, 'Spatial')
+
+
+BIEN_downloader <- function(x){
+  
+  occurrences <- BIEN_occurrence_spatialpolygons(x)
+  occurrences <- st_as_sf(occurrences)
+  occs2write  <- bind_cols(occurrences, x$Radius) 
+  
+  st_write(occs2write, 
+           paste0(here(), '/data/raw/BIEN_rcrds', x$Polygon, "_", Sys.Date(), '.shp')
+  )
+  
+  writeLines(
+    paste0('The ', x$Polygon, 'polygon has completed downloading as of: ', Sys.time())
+  )
+}
+
+
+
+#################################
+###     spp_pres_sampler     ####
+#################################
+
+spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
+  
+  # target = target records data set
+  # range = range records data set
+  # tSS = number of samples to make in target area (target Sample Size)
+  # rSS = proportion of samples to make in non-target area (range Sample Size)
+  # replicates = number of replicates
+  
+  target_values <- data.frame(replicate(replicates, 
+                                        sample(1:nrow(focal_records), size = tSS, replace = F)
+  ))
+  colnames(target_values) <- sprintf("Iteration%002d", seq(1:ncol(target_values)))
+  target_values <- reshape2::melt(target_values)
+  names(target_values) <- c('Iteration', 'Record_ID')
+  target_values <- target_values %>% 
+    select(Record_ID, Iteration) %>% 
+    mutate(Draw = 'Focal_Cell')
+  
+  range_values <- replicate(replicates, 
+                            range %>% 
+                              slice_sample(prop = rSS) %>% 
+                              group_by(scrubbed_species_binomial) %>% 
+                              slice_min(distances) %>% 
+                              ungroup(scrubbed_species_binomial) %>% 
+                              select(Record_ID)
+  )
+  names(range_values) <- sprintf("Iteration%002d", seq(1:length(range_values)))
+  range_values <- lapply(range_values, tibble)
+  range_values <- Map(cbind, range_values, Iteration=names(range_values))
+  range_values <- bind_rows(range_values)
+  names(range_values) <- c('Record_ID', 'Iteration')
+  range_values <- range_values %>% 
+    mutate(Draw = 'Target_Cell')
+  
+  result <- rbind(range_values, target_values)
+  return(result)
+}

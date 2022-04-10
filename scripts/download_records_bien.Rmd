@@ -15,39 +15,240 @@ set.seed(12)
 
 ```{r import coords and prepare for upload to database}
 poly_coords <- st_read(
-  paste0(here(), '/data/processed/BIEN_polygons', Sys.Date(), '.shp'), 
+  paste0(here(), '/data/processed/BIEN_polygons', '2022-03-31', '.shp'), 
   quiet = T) 
 
-polygons <- split(poly_coords, ~Polygon) |>
-  lapply(as, 'Spatial')
+poly100 <- poly_coords[7,]
+poly100_bb <- poly100 %>%  
+  st_bbox()
 
 rm(poly_coords)
 ```
 
-```{r prepare function to download values from server, eval = F}
 
-BIEN_downloader <- function(x){
-  
-  occurrences <- BIEN_occurrence_spatialpolygons(x)
-  occurrences <- st_as_sf(occurrences)
-  occs2write  <- bind_cols(occurrences, x$Radius) 
+# We will download all species occurrence records from within a 100 km radius of the study area. 
 
-  st_write(occs2write, 
-           paste0(here(), '/data/raw/BIEN_rcrds', x$Polygon, "_", Sys.Date(), '.shp')
-  )
-  
-  writeLines(
-    paste0('The ', x$Polygon, 'polygon has completed downloading as of: ', Sys.time())
-  )
-}
+```{r download records from BIEN, eval = F}
+poly_100_recs <- BIEN_occurrence_box(min.lat  = poly100_bb[2],
+                                     max.lat  = poly100_bb[4],
+                                     min.long = poly100_bb[1],
+                                     max.long = poly100_bb[3]
+                                     )
 
-lapply(polygons, BIEN_downloader)
+write.csv(poly_100_recs, paste0(here(), '/data/raw/100km_bien_occurrence.csv'))
+rm(poly100_bb)
+```
+
+
+```{r Create grids which repeat regularly to extract land ownership too}
+grids <- st_make_grid(st_transform(poly100, 32613), 
+             cellsize = 5000,
+             square = F, 
+             flat_topped = T) %>% 
+  st_intersection(., st_transform(poly100, 32613))
+
+pad <- st_read(paste0(here(), 
+         '/data/raw/PADUS2_1_Region7_Shapefile/PADUS2_1Fee_Region7.shp'),
+  quiet = T) %>% 
+  filter(State_Nm == 'CO') %>% 
+  dplyr::select(Category, Mang_Name, d_Des_Tp)
+
+grids <- st_transform(grids, st_crs(pad)) %>% 
+  st_as_sf() %>% 
+  mutate(ID = 1:nrow(.))
+
+pad_grids <- st_intersection(pad, grids)
+
+pad_grids1 <- st_as_sf(pad_grids) %>% 
+ # group_by(Category, Mang_Name, d_Des_Tp, ID) %>% 
+  #summarize(geometry = st_union(geometry)) %>% 
+  mutate(PL_Area = as.numeric(st_area(.)))
+
+grids <- grids %>% 
+  mutate(GR_Area = as.numeric(st_area(.)))
+
+public_lands_ownership <- left_join(grids,
+                  st_drop_geometry(pad_grids1),
+                  by = 'ID') %>% 
+  group_by(ID, Category, Mang_Name, d_Des_Tp) %>% 
+  mutate(PL_Area = replace_na(PL_Area, 0)) %>% 
+  mutate(PL_Area = sum(PL_Area)) %>% 
+  distinct(ID, .keep_all = T) %>% 
+  ungroup() %>% 
+  group_by(ID) %>% 
+  mutate('PropPublicLand' = sum(PL_Area)/GR_Area) %>% 
+  group_by(ID, Category, Mang_Name, d_Des_Tp) %>% 
+  mutate('PropOfGrid' = PL_Area/GR_Area)
+
+rm(pad_grids, pad_grids1, pad)
+```
+
+
+```{r load in and process tabular data}
+poly_100_recs <- read.csv(paste0(here(), '100km_bien_occurrence.csv'))
+poly_100_recs <- poly_100_recs %>%
+  st_as_sf(coords = c(x = 'longitude', y = 'latitude'), crs = 4326) %>% 
+  dplyr::select('scrubbed_species_binomial') 
+
+poly100_t <- st_intersection(poly100, poly_100_recs)
+poly100_t <- poly100_t[,3:4]
+
+center <- st_centroid(poly100)
+distances <- st_distance(center, poly100_t)
+distances <- as.numeric(distances)
+distances <- tibble(distances)
+
+poly100_t_dist <- cbind(distances, poly100_t)
+poly100_t_dist <- st_as_sf(poly100_t_dist) %>%
+  distinct(scrubbed_species_binomial, distances, .keep_all = T)
+
+poly100_unique <- poly100_t_dist %>% 
+  group_by(scrubbed_species_binomial) %>%
+  slice_min(n = 5, order_by = distances, with_ties = F) 
+
+rm(center, poly_100_recs, distances, poly100_bb)
+```
+
+
+```{r Modelling Relationship between Proportion of Public Lands and Number of Records}
+poly100_t <- st_transform(poly100_t, st_crs(grids))
+poly100_t <- poly100_t %>% 
+  distinct(scrubbed_species_binomial, geometry, .keep_all = T)
+rcs_pr_grid <- st_intersection(grids, poly100_t) %>% 
+  count(ID) %>% 
+  st_drop_geometry()
+
+public_lands_ownership <- left_join(public_lands_ownership,
+                                    rcs_pr_grid, by = 'ID') %>% 
+  mutate(n = replace_na(n, 0))
+
+ggplot() +
+  geom_sf(data = poly100) +
+  geom_sf(data = public_lands_ownership, aes(fill = n)) +
+  theme_void()
+
+
+rm(rcs_pr_grid)
+```
+
+# DETERMINE INFLATION OF RMBL RECORDS TO OTHER AREAS - DOWNSAMPLE. 
+
+maybe just take the mean # of records from the adjacent cells? will then need to repeatedly subset the spp. richness from there...
+
+The grid cell containing the RMBL records has a surplus of records relative to cells in other areas. It is challenging to model how many records may occur in this area without the Field Station Existence. Here we take an absurdly conservative approach to calculate the number of records which may exist in the area by taking the mean of the surrounding grid cells. The reason this approach will be conservative is that nearly all of the adjacent cells do **not** have road access to them, or they are in fact largely occupied by a ton and private property. 
+
+```{r Identify Cells Adjacent to RMBL to determine how large of sample to take from RMBL Cell, warning - F}
+grids_out <- poly100 %>% 
+  st_centroid() %>%
+  st_transform(32613) %>% 
+  st_buffer(5000) %>% 
+  st_transform(., st_crs(grids)) %>%
+  st_intersection(. , grids)
+
+poly100 <- st_transform(poly100, st_crs(grids_out))
+grid2rm <- st_intersection(st_centroid(poly100), grids_out) %>% 
+  select(ID)
+
+grids_out <- grids_out %>% 
+  filter(ID != grid2rm$ID)
+
+recs2sample <- filter(public_lands_ownership, ID %in% grids_out$ID) %>% 
+  #dplyr::select(ID, n, PropPublicLand) %>% 
+  st_drop_geometry() %>% 
+  distinct(ID, .keep_all = T) %>% 
+  ungroup() %>% 
+  summarize(mean = round(mean(n), 0))
 
 ```
 
-# CHANGE IN APPROACH - DO NOT USE MULTIPLE DOWNLOADS FROM SERVER.  USE LARGEST APPROACH 100 KM RADIUS AND DOWNLOAD ALL GEOREFERENCED RECORDS. THEN USE ST_DISTANCE BETWEEN THE COORDINATES CENTROID. GROUP BY SPECIES AND SELECT FOR THE SHORTEST DISTANCE TO CENTROID. - THIS PROVIDES CONTINUOUS PREDICTOR (DISTANCE) TO A LOGISTIC REGRESSION. 
+87! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. 
 
 # AFTER COLLECTION DISTANCES RUN %IN% TO APPEND 1,0 PRESENCE/ABSENCE TO RMBL FIELD SITE.
+
+
+```{r prep data for going into sampler}
+
+poly100_t_dist <- poly100_t_dist %>% 
+  mutate(Record_ID = 1:nrow(.))
+
+target_grid <- filter(grids, ID == grid2rm$ID)
+
+target_grid <- st_transform(target_grid, st_crs(poly100_t_dist))
+focal_records <- st_intersection(target_grid, poly100_t_dist)
+
+poly100_t_dist_sub <- poly100_t_dist %>% 
+  filter(! Record_ID %in% focal_records$Record_ID) %>% 
+  st_drop_geometry()
+```
+
+
+```{r}
+
+focal_records  <- focal_records %>% 
+  select(scrubbed_species_binomial, distances, Record_ID) %>% 
+  st_drop_geometry()
+
+spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
+  
+  # target = target records data set
+  # range = range records data set
+  # tSS = number of samples to make in target area (target Sample Size)
+  # rSS = proportion of samples to make in non-target area (range Sample Size)
+  # replicates = number of replicates
+  
+  target_values <- data.frame(replicate(replicates, 
+                 sample(1:nrow(focal_records), size = tSS, replace = F)
+                 ))
+  colnames(target_values) <- sprintf("Iteration%002d", seq(1:ncol(target_values)))
+  target_values <- reshape2::melt(target_values)
+  names(target_values) <- c('Iteration', 'Record_ID')
+  target_values <- target_values %>% 
+    select(Record_ID, Iteration) %>% 
+    mutate(Draw = 'Focal_Cell')
+
+  range_values <- replicate(replicates, 
+                          range %>% 
+  slice_sample(prop = rSS) %>% 
+  group_by(scrubbed_species_binomial) %>% 
+  slice_min(distances) %>% 
+  ungroup(scrubbed_species_binomial) %>% 
+  select(Record_ID)
+)
+  names(range_values) <- sprintf("Iteration%002d", seq(1:length(range_values)))
+  range_values <- lapply(range_values, tibble)
+  range_values <- Map(cbind, range_values, Iteration=names(range_values))
+  range_values <- bind_rows(range_values)
+  names(range_values) <- c('Record_ID', 'Iteration')
+  range_values <- range_values %>% 
+    mutate(Draw = 'Target_Cell')
+  
+  result <- rbind(range_values, target_values)
+  return(result)
+}
+
+abc <- spp_pres_sampler(target = focal_records, 
+                        range = poly100_t_dist_sub, 
+                        tSS = 87, rSS = 0.9, replicates = 250
+                        )
+
+
+rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 split data set
 ```{r split data set, echo = F}
