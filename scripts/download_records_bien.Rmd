@@ -11,6 +11,8 @@ library(sf) # spatial data compliant with tidyverse
 library(here)
 library(BIEN)
 set.seed(12)
+
+source(here::here('scripts/sdm_functions.R'))
 ```
 
 ```{r import coords and prepare for upload to database}
@@ -182,7 +184,7 @@ poly100_t_dist_sub <- poly100_t_dist %>%
 ```
 
 
-```{r}
+```{r subset the BIEN records and sample a proportion for logistic regression}
 
 focal_records  <- focal_records %>% 
   select(scrubbed_species_binomial, distances, Record_ID) %>% 
@@ -226,18 +228,26 @@ spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
   return(result)
 }
 
-abc <- spp_pres_sampler(target = focal_records, 
-                        range = poly100_t_dist_sub, 
-                        tSS = 87, rSS = 0.9, replicates = 250
-                        )
+abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
+                        tSS = 87, rSS = 0.9, replicates = 250)
 
-
-rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid)
-
+rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid, range_values1, poly100_t_dist_sub)
 ```
 
 
+THESE RESULTS VERY CLOSE A COUPLE THINGS TO MAKE SURE TAXONOMY 1:1 MATCH UP - NOTE ORCHIDS ARE RESTRICTED FROM DB. 
+```{r}
+rmbl_plant_list <- read.csv(paste0(here(), '/data/processed/gothic_plant_list.csv'))[,c(1,4)]
 
+testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>% 
+  dplyr::select(-geometry) %>% 
+  group_by(Iteration, scrubbed_species_binomial) %>% # the record further in space is
+  slice_min(n = 1, order_by = distances) %>%  # pruned in this step 
+  left_join(., rmbl_plant_list, by = c('scrubbed_species_binomial' ='binomial')) %>% 
+  mutate(occurrence = if_else(!is.na(family), 1, 0) ) 
+
+rm(rmbl_plant_list)
+```
 
 
 
@@ -260,7 +270,7 @@ rm(index)
 
 
 ```{r fit model, echo = F}
-allspecies_log <- glm(occurrence ~ Value, data = train, family = "binomial")
+allspecies_log <- glm(occurrence ~ distances, data = train, family = "binomial")
 mod_sum <- broom::tidy(allspecies_log)
 mod_sum$p.value <- '< 0.001'
 confint_res <- confint(allspecies_log)
@@ -276,11 +286,11 @@ We can present results using a classification table, more importantly this table
 pred_prob <- predict(allspecies_log, test, type = "response")
 # Create a probabiliy table for the TRAINING Data
 train$pred_class <- ifelse(allspecies_log$fitted.values >= 0.5, 1, 0)
-ctab_train <- table(cut(train$Value, breaks = 2), cut(train$occurrence,
+ctab_train <- table(cut(train$distances, breaks = 2), cut(train$occurrence,
                                                       breaks = 2))
 # now repeat the process for the TEST data
 test$pred_class <- ifelse(pred_prob >= 0.5, 1, 0)
-ctab_test <- table(cut(test$Value, breaks = 2), cut(test$occurrence, breaks = 2))
+ctab_test <- table(cut(test$distances, breaks = 2), cut(test$occurrence, breaks = 2))
 ctab_report <- cbind(as.data.frame.matrix(ctab_train), 
                      as.data.frame.matrix(ctab_test))
 rownames(ctab_report) <- c('Absence','Presence')
@@ -304,18 +314,12 @@ F_Score <- (2 * Precision * Recall / (Precision + Recall))/100
 # Reciever operator Curve
 roc <- pROC::roc(train$occurrence, allspecies_log$fitted.values)
 # Concordance}
-concordance <- InformationValue::Concordance(allspecies_log$y,
-                                             allspecies_log$fitted.values)
-conc <- concordance[["Concordance"]]
-disc <- concordance[["Discordance"]]
-tied <- concordance[["Tied"]]
+
 evaluation_table <- data.frame(
   'Metric' = c('Accuracy (Training)','Accuracy (Test)','Recall',
-                          'True Neg. Rate','Precision', 'F-Score', 'AUC', 
-                          'Concordance', 'Discordance', 'Tied'),
+                          'True Neg. Rate','Precision', 'F-Score', 'AUC'),
            'Value' = c(accuracy_train, accuracy_test, Recall, TNR, 
-                       Precision, F_Score, as.numeric(roc[["auc"]]),
-                       conc, disc, tied)
+                       Precision, F_Score, as.numeric(roc[["auc"]]))
   )
 evaluation_table$Value <- round(evaluation_table$Value, 2)
 knitr::kable(evaluation_table)
@@ -323,11 +327,11 @@ rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, 
 ```
 
 ```{r create prediction plot, warning = F, echo = F}
-newdata1 <- with(testing_data, data.frame(Value = mean(Value)))
+newdata1 <- with(testing_data, data.frame(distances = mean(distances)))
 newdata1$probability <- predict(allspecies_log, newdata = newdata1, type = "response")
 newdata2 <- with(testing_data, 
-                 data.frame(Value = rep(seq(from = 0.1, to = 1, length.out = 100), 4),
-                                          Value = mean(Value)))
+                 data.frame(distances = rep(seq(from = 0.1, to = 1, length.out = 100), 4),
+                                          distances = mean(distances)))
 newdata3 <- cbind(newdata2, predict(allspecies_log, newdata = newdata2, type = "link",
     se = TRUE))
 newdata3 <- within(newdata3, {
@@ -335,15 +339,17 @@ newdata3 <- within(newdata3, {
     LL <- plogis(fit - (1.96 * se.fit))
     UL <- plogis(fit + (1.96 * se.fit))
 })
+
 testing_data$PredictedProb <- ifelse(testing_data$occurrence == 1, 1, 0)
-ggplot(newdata3, aes(x = Value, y = PredictedProb)) + 
+
+ggplot(newdata3, aes(x = distances, y = PredictedProb)) + 
   geom_ribbon(aes(ymin = LL,ymax = UL), fill = 'red', alpha = 0.8) + 
-  geom_line(size = 1) +
-  geom_jitter(data = testing_data, aes(x = Value , y= PredictedProb), 
+  geom_line(size = 5) +
+  geom_jitter(data = testing_data, aes(x = distances , y= PredictedProb), 
              alpha = 0.025, shape = 19, 
              height = 0.05, width = 0) +
   labs(title="Binomial Regression with Prediction Intervals and Data",
-       x ="SDM Probability of Occurrence", y = "Occurrence") +
+       x ="Distance (m)", y = "Occurrence") +
   theme(plot.title = element_text(hjust = 0.5)) +
   ylim(0,1) +
   theme_classic()
