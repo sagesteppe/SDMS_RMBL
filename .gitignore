@@ -6,4 +6,8 @@ data
 results
 /data/*
 /maps/*
+/scripts/classification.txt
+/scripts/meta.xml
+/scripts/eml.xml
+/scripts/references.txt
 
