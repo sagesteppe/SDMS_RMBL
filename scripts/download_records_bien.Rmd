@@ -87,7 +87,7 @@ rm(pad_grids, pad_grids1, pad)
 
 
 ```{r load in and process tabular data}
-poly_100_recs <- read.csv(paste0(here(), '100km_bien_occurrence.csv'))
+poly_100_recs <- read.csv(paste0(here(), '/data/raw/100km_bien_occurrence.csv'))
 poly_100_recs <- poly_100_recs %>%
   st_as_sf(coords = c(x = 'longitude', y = 'latitude'), crs = 4326) %>% 
   dplyr::select('scrubbed_species_binomial') 
@@ -129,7 +129,6 @@ ggplot() +
   geom_sf(data = public_lands_ownership, aes(fill = n)) +
   theme_void()
 
-
 rm(rcs_pr_grid)
 ```
 
@@ -168,7 +167,7 @@ recs2sample <- filter(public_lands_ownership, ID %in% grids_out$ID) %>%
 # AFTER COLLECTION DISTANCES RUN %IN% TO APPEND 1,0 PRESENCE/ABSENCE TO RMBL FIELD SITE.
 
 
-```{r prep data for going into sampler}
+```{r prep data for going into sampler, warning = F}
 
 poly100_t_dist <- poly100_t_dist %>% 
   mutate(Record_ID = 1:nrow(.))
@@ -190,55 +189,18 @@ focal_records  <- focal_records %>%
   select(scrubbed_species_binomial, distances, Record_ID) %>% 
   st_drop_geometry()
 
-spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
-  
-  # target = target records data set
-  # range = range records data set
-  # tSS = number of samples to make in target area (target Sample Size)
-  # rSS = proportion of samples to make in non-target area (range Sample Size)
-  # replicates = number of replicates
-  
-  target_values <- data.frame(replicate(replicates, 
-                 sample(1:nrow(focal_records), size = tSS, replace = F)
-                 ))
-  colnames(target_values) <- sprintf("Iteration%002d", seq(1:ncol(target_values)))
-  target_values <- reshape2::melt(target_values)
-  names(target_values) <- c('Iteration', 'Record_ID')
-  target_values <- target_values %>% 
-    select(Record_ID, Iteration) %>% 
-    mutate(Draw = 'Focal_Cell')
-
-  range_values <- replicate(replicates, 
-                          range %>% 
-  slice_sample(prop = rSS) %>% 
-  group_by(scrubbed_species_binomial) %>% 
-  slice_min(distances) %>% 
-  ungroup(scrubbed_species_binomial) %>% 
-  select(Record_ID)
-)
-  names(range_values) <- sprintf("Iteration%002d", seq(1:length(range_values)))
-  range_values <- lapply(range_values, tibble)
-  range_values <- Map(cbind, range_values, Iteration=names(range_values))
-  range_values <- bind_rows(range_values)
-  names(range_values) <- c('Record_ID', 'Iteration')
-  range_values <- range_values %>% 
-    mutate(Draw = 'Target_Cell')
-  
-  result <- rbind(range_values, target_values)
-  return(result)
-}
-
 abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
                         tSS = 87, rSS = 0.9, replicates = 250)
 
-rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid, range_values1, poly100_t_dist_sub)
+rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
 ```
 
 
 THESE RESULTS VERY CLOSE A COUPLE THINGS TO MAKE SURE TAXONOMY 1:1 MATCH UP - NOTE ORCHIDS ARE RESTRICTED FROM DB. 
 ```{r}
 rmbl_plant_list <- read.csv(paste0(here(), '/data/processed/gothic_plant_list.csv'))[,c(1,4)]
-
+rmbl_spp <- rmbl_plant_list$binomial
+  
 testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>% 
   dplyr::select(-geometry) %>% 
   group_by(Iteration, scrubbed_species_binomial) %>% # the record further in space is
@@ -246,16 +208,26 @@ testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>%
   left_join(., rmbl_plant_list, by = c('scrubbed_species_binomial' ='binomial')) %>% 
   mutate(occurrence = if_else(!is.na(family), 1, 0) ) 
 
-rm(rmbl_plant_list)
+all_spp <- poly100_unique %>%  
+  distinct(scrubbed_species_binomial, .keep_all = T)
+
 ```
 
 
+```{r}
+library(WorldFlora)
+WFO.remember()
 
+rmbl_spp <- sort(rmbl_spp)
+spec.test <- data.frame(spec.name=c(rmbl_spp))
+target_results <- WFO.synonyms(spec.data=spec.test, WFO.data=WFO.data, counter=1, verbose=F)
 
+spec.test1 <- poly100_unique %>% 
+  distinct(scrubbed_species_binomial) %>% 
+  pull()
+museum_results <- WFO.synonyms(spec.data=spec.test1, WFO.data=WFO.data, counter=1, verbose=TRUE)
 
-
-
-
+```
 
 
 
