@@ -148,7 +148,7 @@ grids_out <- poly100 %>%
 
 poly100 <- st_transform(poly100, st_crs(grids_out))
 grid2rm <- st_intersection(st_centroid(poly100), grids_out) %>% 
-  select(ID)
+  dplyr::select(ID)
 
 grids_out <- grids_out %>% 
   filter(ID != grid2rm$ID)
@@ -186,7 +186,7 @@ poly100_t_dist_sub <- poly100_t_dist %>%
 ```{r subset the BIEN records and sample a proportion for logistic regression}
 
 focal_records  <- focal_records %>% 
-  select(scrubbed_species_binomial, distances, Record_ID) %>% 
+  dplyr::select(scrubbed_species_binomial, distances, Record_ID) %>% 
   st_drop_geometry()
 
 abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
@@ -216,6 +216,7 @@ all_spp <- poly100_unique %>%
 
 ```{r}
 library(WorldFlora)
+#WFO.download()
 WFO.remember()
 
 rmbl_spp <- sort(rmbl_spp)
@@ -227,10 +228,58 @@ spec.test1 <- poly100_unique %>%
   pull()
 museum_results <- WFO.synonyms(spec.data=spec.test1, WFO.data=WFO.data, counter=1, verbose=TRUE)
 
+length(rmbl_spp) <- nrow(target_results)
+length(spec.test1) <- nrow(museum_results)
+
+rmbl_spp <- cbind('Species' = rmbl_spp, target_results)
+target_spp <- cbind('Species' = spec.test1, museum_results)
+
+rm(spec.test, spec.test1, museum_results)
 ```
 
 
+compare and clean up species lists
+```{r clean species lists}
 
+rmbl_spp_CLEAN <- rmbl_spp %>% 
+  filter(Species == scientificName)
+rmbl_spp_DURTY <- rmbl_spp %>% 
+  filter(Species != scientificName)
+
+target_spp_CLEAN <- target_spp %>% 
+  filter(Species == scientificName)
+target_spp_DURTY <- target_spp %>% 
+  filter(Species != scientificName)
+
+target_spp_CLEAN <- target_spp_DURTY %>% 
+  mutate(scientificName = str_replace_all(scientificName, " ", "_")) %>% 
+  filter(!str_detect(scientificName, '_')) %>% # WE WILL KEEP THE INPUT SPECIES HERE...
+  mutate(scientificName = str_replace_all(scientificName, "_", " ")) %>% 
+  mutate(scientificName = Species) %>% 
+  bind_rows(., target_spp_CLEAN)
+rmbl_spp_CLEAN <- rmbl_spp_DURTY %>% 
+  mutate(scientificName = str_replace_all(scientificName, " ", "_")) %>% 
+  filter(!str_detect(scientificName, '_')) %>% 
+  mutate(scientificName = str_replace_all(scientificName, "_", " ")) %>% 
+  mutate(scientificName = Species) %>% 
+  bind_rows(., rmbl_spp_CLEAN)
+
+rmbl_spp_DURTY <- rmbl_spp_DURTY %>% 
+  filter(!scientificName %in% rmbl_spp_CLEAN$scientificName)
+target_spp_DURTY <- target_spp_DURTY %>% 
+  filter(!scientificName %in% target_spp_CLEAN$scientificName)
+
+accepted_target <- target_spp_CLEAN %>% 
+  filter(scientificName %in% rmbl_spp_CLEAN$scientificName)
+accepted_rmbl <- rmbl_spp_CLEAN %>% 
+  filter(scientificName %in% target_spp_CLEAN$scientificName)
+
+quest_rmbl <- rmbl_spp_CLEAN %>% 
+  filter(!scientificName %in% target_spp_CLEAN$scientificName)
+
+quest_target <- target_spp_CLEAN %>% 
+  filter(!scientificName %in% rmbl_spp_CLEAN$scientificName)
+```
 
 split data set
 ```{r split data set, echo = F}

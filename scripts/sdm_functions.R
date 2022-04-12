@@ -687,7 +687,7 @@ spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
   target_values <- reshape2::melt(target_values)
   names(target_values) <- c('Iteration', 'Record_ID')
   target_values <- target_values %>% 
-    select(Record_ID, Iteration) %>% 
+    dplyr::select(Record_ID, Iteration) %>% 
     mutate(Draw = 'Focal_Cell')
   
   range_values <- replicate(replicates, 
@@ -696,7 +696,7 @@ spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
                               group_by(scrubbed_species_binomial) %>% 
                               slice_min(distances) %>% 
                               ungroup(scrubbed_species_binomial) %>% 
-                              select(Record_ID)
+                              dplyr::select(Record_ID)
   )
   names(range_values) <- sprintf("Iteration%002d", seq(1:length(range_values)))
   range_values <- lapply(range_values, tibble)
