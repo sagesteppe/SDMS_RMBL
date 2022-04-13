@@ -112,7 +112,7 @@ rm(center, poly_100_recs, distances, poly100_bb)
 ```
 
 
-```{r Modelling Relationship between Proportion of Public Lands and Number of Records}
+```{r Modelling Relationship between Proportion of Public Lands and Number of Records, warning = F}
 poly100_t <- st_transform(poly100_t, st_crs(grids))
 poly100_t <- poly100_t %>% 
   distinct(scrubbed_species_binomial, geometry, .keep_all = T)
@@ -120,8 +120,7 @@ rcs_pr_grid <- st_intersection(grids, poly100_t) %>%
   count(ID) %>% 
   st_drop_geometry()
 
-public_lands_ownership <- left_join(public_lands_ownership,
-                                    rcs_pr_grid, by = 'ID') %>% 
+public_lands_ownership <- left_join(public_lands_ownership, rcs_pr_grid, by = 'ID') %>% 
   mutate(n = replace_na(n, 0))
 
 ggplot() +
@@ -138,7 +137,7 @@ maybe just take the mean # of records from the adjacent cells? will then need to
 
 The grid cell containing the RMBL records has a surplus of records relative to cells in other areas. It is challenging to model how many records may occur in this area without the Field Station Existence. Here we take an absurdly conservative approach to calculate the number of records which may exist in the area by taking the mean of the surrounding grid cells. The reason this approach will be conservative is that nearly all of the adjacent cells do **not** have road access to them, or they are in fact largely occupied by a ton and private property. 
 
-```{r Identify Cells Adjacent to RMBL to determine how large of sample to take from RMBL Cell, warning - F}
+```{r Identify Cells Adjacent to RMBL to determine how large of sample to take from RMBL Cell, warning = F}
 grids_out <- poly100 %>% 
   st_centroid() %>%
   st_transform(32613) %>% 
@@ -158,13 +157,11 @@ recs2sample <- filter(public_lands_ownership, ID %in% grids_out$ID) %>%
   st_drop_geometry() %>% 
   distinct(ID, .keep_all = T) %>% 
   ungroup() %>% 
-  summarize(mean = round(mean(n), 0))
+  summarize(third_quart = round(quantile(n, prob = 0.75), 0))
 
 ```
 
-87! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. 
-
-# AFTER COLLECTION DISTANCES RUN %IN% TO APPEND 1,0 PRESENCE/ABSENCE TO RMBL FIELD SITE.
+90! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. We went with the third quartile rather than the mean value due to the adjacent cells being in roadless wilderness areas, or for one having  a high proportion of private owernship. 
 
 
 ```{r prep data for going into sampler, warning = F}
@@ -234,12 +231,13 @@ length(spec.test1) <- nrow(museum_results)
 rmbl_spp <- cbind('Species' = rmbl_spp, target_results)
 target_spp <- cbind('Species' = spec.test1, museum_results)
 
-rm(spec.test, spec.test1, museum_results)
+rm(spec.test, spec.test1, museum_results, WFO.data)
 ```
 
 
-compare and clean up species lists
-```{r clean species lists}
+```{r clean species lists, eval = F}
+
+# i decided the results were good enough. 
 
 rmbl_spp_CLEAN <- rmbl_spp %>% 
   filter(Species == scientificName)
@@ -251,6 +249,8 @@ target_spp_CLEAN <- target_spp %>%
 target_spp_DURTY <- target_spp %>% 
   filter(Species != scientificName)
 
+
+# Here we will remove the species which were matched to genus but not to species
 target_spp_CLEAN <- target_spp_DURTY %>% 
   mutate(scientificName = str_replace_all(scientificName, " ", "_")) %>% 
   filter(!str_detect(scientificName, '_')) %>% # WE WILL KEEP THE INPUT SPECIES HERE...
@@ -264,34 +264,65 @@ rmbl_spp_CLEAN <- rmbl_spp_DURTY %>%
   mutate(scientificName = Species) %>% 
   bind_rows(., rmbl_spp_CLEAN)
 
+# now perform the opposite
 rmbl_spp_DURTY <- rmbl_spp_DURTY %>% 
-  filter(!scientificName %in% rmbl_spp_CLEAN$scientificName)
+  mutate(scientificName = str_replace_all(scientificName, " ", "_")) %>% 
+  filter(str_detect(scientificName, '_')) %>% 
+  mutate(scientificName = str_replace_all(scientificName, "_", " "))
 target_spp_DURTY <- target_spp_DURTY %>% 
-  filter(!scientificName %in% target_spp_CLEAN$scientificName)
+  mutate(scientificName = str_replace_all(scientificName, " ", "_")) %>% 
+  filter(str_detect(scientificName, '_')) %>% 
+  mutate(scientificName = str_replace_all(scientificName, "_", " "))
 
-accepted_target <- target_spp_CLEAN %>% 
-  filter(scientificName %in% rmbl_spp_CLEAN$scientificName)
-accepted_rmbl <- rmbl_spp_CLEAN %>% 
-  filter(scientificName %in% target_spp_CLEAN$scientificName)
+# THESE ARE EPITHETS WHICH ARE VALID FOR BOTH LISTS
+rmbl_spp_CLEAN <- rmbl_spp_DURTY %>% 
+  filter(scientificName %in% target_spp_CLEAN$scientificName)  %>% 
+  bind_rows(., rmbl_spp_CLEAN)
+target_spp_CLEAN <- target_spp_DURTY %>% 
+  filter(scientificName %in% rmbl_spp_CLEAN$scientificName) %>% 
+  bind_rows(., target_spp_CLEAN)
 
-quest_rmbl <- rmbl_spp_CLEAN %>% 
-  filter(!scientificName %in% target_spp_CLEAN$scientificName)
+rmbl_spp_DURTY <- rmbl_spp_DURTY %>% 
+  filter(!scientificName %in% target_spp_CLEAN$scientificName) 
+target_spp_DURTY <- target_spp_DURTY %>% 
+  filter(!scientificName %in% rmbl_spp_CLEAN$scientificName) 
 
-quest_target <- target_spp_CLEAN %>% 
-  filter(!scientificName %in% rmbl_spp_CLEAN$scientificName)
+# AT THIS POINT I FIND ACCEPTING THE REST OF KEWS NOTATIONS ACCEPTABLE . I DO NOT AGREE
+# WITH ALL (NOTABLY THE STIPEAE TRIBE RETAINED IN THE GENUS STIPA S.L.), BUT WILL ACCEPT THEM...
+
+rmbl_spp_clean <- bind_rows(rmbl_spp_CLEAN, rmbl_spp_DURTY1)
+target_spp_clean <- bind_rows(target_spp_CLEAN, target_spp_DURTY1)
+
+rm(rmbl_spp_CLEAN, rmbl_spp_DURTY, target_spp_CLEAN, target_spp_DURTY, target_spp_CLEAN, rmbl_spp_CLEAN, target_spp_clean, rmbl_spp_clean)
 ```
+
+```{r Append presence absence to each museum record species}
+
+target_spp <- target_spp %>% 
+  dplyr::select(scientificName, scientificNameAuthorship, Species) %>% 
+  mutate(Occurrence = if_else(.$scientificName %in% rmbl_spp$scientificName, 1, 0)) 
+
+testing_data <- left_join(testing_data, target_spp, by = c('scrubbed_species_binomial'='Species')) %>% 
+  dplyr::select(-scrubbed_species_binomial)
+
+rm(target_spp)
+```
+
+
+
 
 split data set
 ```{r split data set, echo = F}
-index <- caret::createDataPartition(testing_data$occurrence, p = .70, list = FALSE)
+testing_data$distances <- testing_data$distances * -1
+index <- caret::createDataPartition(testing_data$Occurrence, p = .70, list = FALSE)
 train <- testing_data[ index, ]
 test  <- testing_data[-index, ]
 rm(index)
 ```
 
 
-```{r fit model, echo = F}
-allspecies_log <- glm(occurrence ~ distances, data = train, family = "binomial")
+```{r fit model, echo = F, message = F}
+allspecies_log <- glm(Occurrence ~ distances, data = train, family = "binomial")
 mod_sum <- broom::tidy(allspecies_log)
 mod_sum$p.value <- '< 0.001'
 confint_res <- confint(allspecies_log)
@@ -321,7 +352,7 @@ knitr::kable(ctab_report)
 rm(ctab_report)
 ```
 
-```{r Model Diagnostics, echo = F}
+```{r Model Diagnostics, echo = F, warning = F}
 accuracy_train <- sum(diag(ctab_train))/sum(ctab_train)*100
 accuracy_test <- sum(diag(ctab_test))/sum(ctab_test)*100
 # Calculate the True Positive Rate
@@ -344,7 +375,7 @@ evaluation_table <- data.frame(
   )
 evaluation_table$Value <- round(evaluation_table$Value, 2)
 knitr::kable(evaluation_table)
-rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pair, ctab_train, ctab_test, evaluation_table)
+rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc, pair, ctab_train, ctab_test, evaluation_table)
 ```
 
 ```{r create prediction plot, warning = F, echo = F}
@@ -364,8 +395,8 @@ newdata3 <- within(newdata3, {
 testing_data$PredictedProb <- ifelse(testing_data$occurrence == 1, 1, 0)
 
 ggplot(newdata3, aes(x = distances, y = PredictedProb)) + 
-  geom_ribbon(aes(ymin = LL,ymax = UL), fill = 'red', alpha = 0.8) + 
-  geom_line(size = 5) +
+#  geom_ribbon(aes(ymin = LL, ymax = UL), fill = 'red', alpha = 0.8) + 
+ # geom_line(size = 5) +
   geom_jitter(data = testing_data, aes(x = distances , y= PredictedProb), 
              alpha = 0.025, shape = 19, 
              height = 0.05, width = 0) +
