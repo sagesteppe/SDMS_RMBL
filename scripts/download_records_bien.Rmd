@@ -187,7 +187,7 @@ focal_records  <- focal_records %>%
   st_drop_geometry()
 
 abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
-                        tSS = 87, rSS = 0.9, replicates = 250)
+                        tSS = 87, rSS = 0.9, replicates = 200)
 
 rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
 ```
@@ -211,7 +211,7 @@ all_spp <- poly100_unique %>%
 ```
 
 
-```{r}
+```{r check for synonymy, message = F, results = 'hide', warning = F}
 library(WorldFlora)
 #WFO.download()
 WFO.remember()
@@ -235,7 +235,7 @@ rm(spec.test, spec.test1, museum_results, WFO.data)
 ```
 
 
-```{r clean species lists, eval = F}
+```{r clean species lists}
 
 # i decided the results were good enough. 
 
@@ -290,8 +290,8 @@ target_spp_DURTY <- target_spp_DURTY %>%
 # AT THIS POINT I FIND ACCEPTING THE REST OF KEWS NOTATIONS ACCEPTABLE . I DO NOT AGREE
 # WITH ALL (NOTABLY THE STIPEAE TRIBE RETAINED IN THE GENUS STIPA S.L.), BUT WILL ACCEPT THEM...
 
-rmbl_spp_clean <- bind_rows(rmbl_spp_CLEAN, rmbl_spp_DURTY1)
-target_spp_clean <- bind_rows(target_spp_CLEAN, target_spp_DURTY1)
+rmbl_spp_clean <- bind_rows(rmbl_spp_CLEAN, rmbl_spp_DURTY)
+target_spp_clean <- bind_rows(target_spp_CLEAN, target_spp_DURTY)
 
 rm(rmbl_spp_CLEAN, rmbl_spp_DURTY, target_spp_CLEAN, target_spp_DURTY, target_spp_CLEAN, rmbl_spp_CLEAN, target_spp_clean, rmbl_spp_clean)
 ```
@@ -309,7 +309,27 @@ rm(target_spp)
 ```
 
 
+## Assess Propotion of True Records
 
+```{r, eval = F, warning = F}
+td1 <- testing_data %>% 
+  arrange(distances) %>% 
+  ungroup() %>% 
+  mutate(roll_sum = RcppRoll::roll_sum(occurrence, 5000, align = "right", fill = NA)/5000)
+
+ggplot(td1, aes(x = distances, y = roll_sum)) +
+  geom_jitter(alpha = 0.01) +
+  geom_smooth()
+
+td1$cuts <- cut(td1$distances, breaks = c(seq(1:50)*2000))
+
+ggplot(td1, aes(x = cuts, y = roll_sum)) +
+  geom_density(stat = 'identity')
+
+```
+
+
+## Logistic Regression Approach
 
 split data set
 ```{r split data set, echo = F}
@@ -318,6 +338,10 @@ index <- caret::createDataPartition(testing_data$Occurrence, p = .70, list = FAL
 train <- testing_data[ index, ]
 test  <- testing_data[-index, ]
 rm(index)
+
+plot(vs ~ hp, data=mtcars, col="steelblue")
+lines(vs ~ hp, newdata, lwd=2)
+
 ```
 
 
@@ -336,7 +360,7 @@ knitr::kable(model_sum_tab)
 We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
 ```{r Classification Table, echo = F}
 pred_prob <- predict(allspecies_log, test, type = "response")
-# Create a probabiliy table for the TRAINING Data
+# Create a probability table for the TRAINING Data
 train$pred_class <- ifelse(allspecies_log$fitted.values >= 0.5, 1, 0)
 ctab_train <- table(cut(train$distances, breaks = 2), cut(train$occurrence,
                                                       breaks = 2))
@@ -382,7 +406,7 @@ rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, 
 newdata1 <- with(testing_data, data.frame(distances = mean(distances)))
 newdata1$probability <- predict(allspecies_log, newdata = newdata1, type = "response")
 newdata2 <- with(testing_data, 
-                 data.frame(distances = rep(seq(from = 0.1, to = 1, length.out = 100), 4),
+                 data.frame(distances = rep(seq(from = 0.1, to = 1, length.out = 10000), 4),
                                           distances = mean(distances)))
 newdata3 <- cbind(newdata2, predict(allspecies_log, newdata = newdata2, type = "link",
     se = TRUE))
@@ -396,15 +420,16 @@ testing_data$PredictedProb <- ifelse(testing_data$occurrence == 1, 1, 0)
 
 ggplot(newdata3, aes(x = distances, y = PredictedProb)) + 
 #  geom_ribbon(aes(ymin = LL, ymax = UL), fill = 'red', alpha = 0.8) + 
- # geom_line(size = 5) +
+  geom_line() +
   geom_jitter(data = testing_data, aes(x = distances , y= PredictedProb), 
-             alpha = 0.025, shape = 19, 
+             alpha = 0.015, shape = 19, 
              height = 0.05, width = 0) +
   labs(title="Binomial Regression with Prediction Intervals and Data",
        x ="Distance (m)", y = "Occurrence") +
   theme(plot.title = element_text(hjust = 0.5)) +
   ylim(0,1) +
   theme_classic()
+
 rm(newdata1, newdata2, newdata3)
 ```
 

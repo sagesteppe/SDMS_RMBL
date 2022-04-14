@@ -92,7 +92,7 @@ PA_ML_DF1 <- split(PA_ML_DF, ~ binomial)
 rm(PA_ML_DF)
 
 Sys.time() 
-lapply(PA_ML_DF1[96:110], Machine_SDM) # skipped #3 & # 112
+lapply(PA_ML_DF1[126:144], Machine_SDM) # skipped #3 & # 112
 Sys.time()
 
 ```
