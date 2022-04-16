@@ -709,3 +709,42 @@ spp_pres_sampler <- function(target, range, tSS, rSS, replicates){
   result <- rbind(range_values, target_values)
   return(result)
 }
+
+
+
+###############################
+###    WFO_family_finder    ###
+###############################
+
+wfo_family_finder <- function(x){
+  
+  # a simple wrapper for making queries to the WFO database via the WorldFlora Package. 
+  
+  # Inputs x = dataframe containing binomial names, function will default to using the
+  # 'scientificName' column as input
+  
+  '%notin%' <- Negate('%in%')
+  xcopy <- x
+  looked_up <- list(0)
+  full_vals <- 1:nrow(x)
+  
+  for (i in 1:length(full_vals)){
+    looked_up[[i]] <-  WFO.family(x$scientificName[[i]], WFO.data = WFO.data)
+  }
+  
+  names(looked_up) <- 1:length(looked_up)
+  unmatched_spp <- looked_up[sapply(looked_up, nrow) == 0]
+  unmatched_spp <- as.numeric(names(unmatched_spp))
+  
+  xcopy <- xcopy[full_vals %notin% unmatched_spp,]
+  x <- x[full_vals %in% unmatched_spp,]
+  
+  results <- bind_rows(looked_up) %>% 
+    dplyr::select(Group, Family, Order, Node.1:Node.4) %>% 
+    bind_cols(xcopy) %>% 
+    bind_rows(x) %>% 
+    arrange(scientificName)
+  
+  return(results)
+}
+

@@ -163,7 +163,6 @@ recs2sample <- filter(public_lands_ownership, ID %in% grids_out$ID) %>%
 
 90! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. We went with the third quartile rather than the mean value due to the adjacent cells being in roadless wilderness areas, or for one having  a high proportion of private owernship. 
 
-
 ```{r prep data for going into sampler, warning = F}
 
 poly100_t_dist <- poly100_t_dist %>% 
@@ -187,7 +186,7 @@ focal_records  <- focal_records %>%
   st_drop_geometry()
 
 abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
-                        tSS = 87, rSS = 0.9, replicates = 200)
+                        tSS = 87, rSS = 0.9, replicates = 250)
 
 rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
 ```
@@ -211,11 +210,11 @@ all_spp <- poly100_unique %>%
 ```
 
 
-```{r check for synonymy, message = F, results = 'hide', warning = F}
+```{r check for synonymy, message = F, results = 'hide', warning = F, eval=F}
 library(WorldFlora)
 #WFO.download()
 WFO.remember()
-
+     
 rmbl_spp <- sort(rmbl_spp)
 spec.test <- data.frame(spec.name=c(rmbl_spp))
 target_results <- WFO.synonyms(spec.data=spec.test, WFO.data=WFO.data, counter=1, verbose=F)
@@ -231,13 +230,19 @@ length(spec.test1) <- nrow(museum_results)
 rmbl_spp <- cbind('Species' = rmbl_spp, target_results)
 target_spp <- cbind('Species' = spec.test1, museum_results)
 
+write.csv(rmbl_spp, paste0(here(), '/data/processed/rmbl_spp_synonyms.csv'), row.names = F)
+write.csv(target_spp, paste0(here(), '/data/processed/target_spp_synonyms.csv'), row.names = F)
+
 rm(spec.test, spec.test1, museum_results, WFO.data)
 ```
 
 
 ```{r clean species lists}
 
-# i decided the results were good enough. 
+rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv'))
+target_spp <- read.csv(paste0(here(), '/data/processed/target_spp_synonyms.csv'))
+
+# i decided the results were good enough. this code still runs but put out what we basically put in.
 
 rmbl_spp_CLEAN <- rmbl_spp %>% 
   filter(Species == scientificName)
@@ -293,8 +298,27 @@ target_spp_DURTY <- target_spp_DURTY %>%
 rmbl_spp_clean <- bind_rows(rmbl_spp_CLEAN, rmbl_spp_DURTY)
 target_spp_clean <- bind_rows(target_spp_CLEAN, target_spp_DURTY)
 
-rm(rmbl_spp_CLEAN, rmbl_spp_DURTY, target_spp_CLEAN, target_spp_DURTY, target_spp_CLEAN, rmbl_spp_CLEAN, target_spp_clean, rmbl_spp_clean)
+rm(rmbl_spp_CLEAN, rmbl_spp_DURTY, target_spp_CLEAN, target_spp_DURTY, target_spp_clean, rmbl_spp_clean)
 ```
+
+
+```{r, message = F, results = 'hide'}
+#library(WorldFlora) # maybe you need this fam.
+WFO.remember()
+
+rmbl_spp <- filter(rmbl_spp, !is.na(Species))
+rmbl_fam <- wfo_family_finder(rmbl_spp)
+target_fam <- wfo_family_finder(target_spp)
+
+opoiu <- rmbl_fam %>% 
+  filter(Group == 'angiosperms', Order != 'Poales')
+
+opoiuA <- target_fam %>% 
+  filter(Group == 'angiosperms', Order != 'Poales')
+  
+rm(output)
+```
+
 
 ```{r Append presence absence to each museum record species}
 
@@ -305,7 +329,7 @@ target_spp <- target_spp %>%
 testing_data <- left_join(testing_data, target_spp, by = c('scrubbed_species_binomial'='Species')) %>% 
   dplyr::select(-scrubbed_species_binomial)
 
-rm(target_spp)
+rm(target_spp, abc)
 ```
 
 
@@ -317,15 +341,54 @@ td1 <- testing_data %>%
   ungroup() %>% 
   mutate(roll_sum = RcppRoll::roll_sum(occurrence, 5000, align = "right", fill = NA)/5000)
 
-ggplot(td1, aes(x = distances, y = roll_sum)) +
+ggplot(td1, aes(x = distances, y = occurrence)) +
   geom_jitter(alpha = 0.01) +
   geom_smooth()
 
-td1$cuts <- cut(td1$distances, breaks = c(seq(1:50)*2000))
+td1$cuts <- cut(td1$distances, breaks = c(seq(0:50)*2000))
 
 ggplot(td1, aes(x = cuts, y = roll_sum)) +
   geom_density(stat = 'identity')
 
+
+# Model 2 Using rollmeans as a predictor
+summary(model <- glm(occurrence ~ distances, family = poisson, data = td1))
+pchisq(2 * (logLik(model) - logLik(model)), df = 1, lower.tail = FALSE)
+(est <- cbind(Estimate = coef(model), confint(model)))
+
+newdata1 <- data.frame(distances = mean(td1$distances))
+newdata1$phat <- predict(model, newdata1, type = "response")
+
+newdata2 <- data.frame(
+  distances = rep(seq(from = min(td1$distances), to = max(td1$distances), length.out = 100), 3)
+)
+
+newdata2 <- cbind(newdata2, predict(model, newdata2, type = "link", se.fit=TRUE))
+newdata2 <- within(newdata2, {
+  occurrences <- exp(fit)
+  LL <- exp(fit - 1.96 * se.fit)
+  UL <- exp(fit + 1.96 * se.fit)
+})
+
+ggplot(newdata2, aes(distances, occurrences)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL), alpha = .5, fil = 'yellow' ) +
+  geom_line(size = 1) +
+  labs(x = "Distance (m)", y = "Proportion of True Records")
+
+
+simulationOutput <- DHARMa::simulateResiduals(fittedModel = model, plot = F)
+plot(simulationOutput)
+DHARMa::testDispersion(simulationOutput)
+
+# testUniformity() #- tests if the overall distribution conforms to expectations
+# testOutliers() #- tests if there are more simulation outliers than expected
+# testDispersion() #- tests if the simulated dispersion is equal to the observed dispersion
+# testQuantiles() #- fits a quantile regression or residuals against a predictor (default predicted value), and tests of this conforms to the expected quantile
+
+# testZeroinflation() #- tests if there are more zeros in the data than expected from the simulations
+# testGeneric() #- test if a generic summary statistics (user-defined) deviates from model expectations
+# testTemporalAutocorrelation() #- tests for temporal autocorrelation in the residuals
+# testSpatialAutocorrelation()
 ```
 
 
