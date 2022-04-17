@@ -161,7 +161,7 @@ recs2sample <- filter(public_lands_ownership, ID %in% grids_out$ID) %>%
 
 ```
 
-90! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. We went with the third quartile rather than the mean value due to the adjacent cells being in roadless wilderness areas, or for one having  a high proportion of private owernship. 
+90! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. We went with the third quantile rather than the mean value due to the adjacent cells being in road less wilderness areas, or for one having  a high proportion of private ownership. 
 
 ```{r prep data for going into sampler, warning = F}
 
@@ -188,7 +188,7 @@ focal_records  <- focal_records %>%
 abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
                         tSS = 87, rSS = 0.9, replicates = 250)
 
-rm(focal_records, grid2rm, grids_out, poly100, poly100_t, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
+rm(focal_records, grid2rm, grids_out, poly100, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
 ```
 
 
@@ -196,7 +196,9 @@ THESE RESULTS VERY CLOSE A COUPLE THINGS TO MAKE SURE TAXONOMY 1:1 MATCH UP - NO
 ```{r}
 rmbl_plant_list <- read.csv(paste0(here(), '/data/processed/gothic_plant_list.csv'))[,c(1,4)]
 rmbl_spp <- rmbl_plant_list$binomial
-  
+```
+
+```{r, eval = F}
 testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>% 
   dplyr::select(-geometry) %>% 
   group_by(Iteration, scrubbed_species_binomial) %>% # the record further in space is
@@ -204,9 +206,8 @@ testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>%
   left_join(., rmbl_plant_list, by = c('scrubbed_species_binomial' ='binomial')) %>% 
   mutate(occurrence = if_else(!is.na(family), 1, 0) ) 
 
-all_spp <- poly100_unique %>%  
-  distinct(scrubbed_species_binomial, .keep_all = T)
-
+#all_spp <- poly100_unique %>%  
+#  distinct(scrubbed_species_binomial, .keep_all = T)
 ```
 
 
@@ -237,13 +238,12 @@ rm(spec.test, spec.test1, museum_results, WFO.data)
 ```
 
 
-```{r clean species lists}
+```{r clean species lists, eval = F}
 
 rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv'))
 target_spp <- read.csv(paste0(here(), '/data/processed/target_spp_synonyms.csv'))
 
 # i decided the results were good enough. this code still runs but put out what we basically put in.
-
 rmbl_spp_CLEAN <- rmbl_spp %>% 
   filter(Species == scientificName)
 rmbl_spp_DURTY <- rmbl_spp %>% 
@@ -302,65 +302,151 @@ rm(rmbl_spp_CLEAN, rmbl_spp_DURTY, target_spp_CLEAN, target_spp_DURTY, target_sp
 ```
 
 
-```{r, message = F, results = 'hide'}
-#library(WorldFlora) # maybe you need this fam.
+```{r, message = F, results = 'hide', eval = F}
+library(WorldFlora) # maybe you need this fam.
 WFO.remember()
 
 rmbl_spp <- filter(rmbl_spp, !is.na(Species))
 rmbl_fam <- wfo_family_finder(rmbl_spp)
 target_fam <- wfo_family_finder(target_spp)
 
-opoiu <- rmbl_fam %>% 
-  filter(Group == 'angiosperms', Order != 'Poales')
+# the same two records from both sets were not returned correctly
+library(data.table)
+setDT(rmbl_fam) # gotta use that slick that stuff. 
+rmbl_fam[scientificName == 'Adoxa moschatellina',
+         `:=`(Group = 'angiosperms', Family = "Adoxaceae", Order = 'Dipsacales', 
+             Node.1 = 'Eudicots', Node.2 = 'Superasterids', Node.3 = 'Asterids',
+             Node.4 = 'Campanulids')][scientificName == 'Sambucus racemosa',
+                                      `:=`(Group = 'angiosperms', Family = "Adoxaceae", 
+                                           Order = 'Dipsacales', Node.1 = 'Eudicots', Node.2 = 'Superasterids',
+                                           Node.3 = 'Asterids', Node.4 = 'Campanulids')]
+rmbl_fam <- tibble(rmbl_fam)
+setDT(target_fam)
+target_fam[scientificName == 'Adoxa moschatellina',
+         `:=`(Group = 'angiosperms', Family = "Adoxaceae", Order = 'Dipsacales', 
+             Node.1 = 'Eudicots', Node.2 = 'Superasterids', Node.3 = 'Asterids',
+             Node.4 = 'Campanulids')][scientificName == 'Sambucus racemosa',
+                                      `:=`(Group = 'angiosperms', Family = "Adoxaceae", 
+                                           Order = 'Dipsacales', Node.1 = 'Eudicots', Node.2 = 'Superasterids',
+                                           Node.3 = 'Asterids', Node.4 = 'Campanulids')]
+target_fam <- tibble(target_fam)
 
-opoiuA <- target_fam %>% 
-  filter(Group == 'angiosperms', Order != 'Poales')
-  
-rm(output)
+
+write.csv(rmbl_fam, paste0(here(), '/data/processed/rmbl_spp_synonyms.csv'), row.names = F)
+write.csv(target_fam, paste0(here(), '/data/processed/target_spp_synonyms.csv'), row.names = F)
+
+rm(rmbl_fam, target_fam, WFO.data)
+```
+
+```{r}
+
+# Draba oligosperma is in the REAL rmbl list
+# Veronica americana is in the real rmbl list
+# Androsace septentrionalis is in the real rmbl list
+# Amelanchier pumila in RMBL needs recode to A. alnifolia
+# Ivesia gordonii is IN REAL RMBL vascular plant list
+# Hypericum maybe ambigious 
+# Senecio crassulus is in real RMBL list
+# Castilleja miniata is in the real RMBL list
+# Minuartia obtusiloba should be in the RMBL digital list
+
+rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv'))
+
+rmbl_spp <- rmbl_spp %>% 
+  mutate(scientificName = case_when(
+    scientificName == 'Trollius' ~ 'Trollius albiflorus', 
+    scientificName == 'Salix arctica' ~ 'Salix petrophila', 
+    scientificName == 'Castilleja sulphurea' ~ 'Castilleja septentrionalis', 
+    scientificName == 'Drymocallis arguta' ~ 'Potentilla arguta', 
+    scientificName == 'Erysimum asperum' ~ 'Erysimum capitatum',  
+    scientificName == 'Heracleum sphondylium' ~ 'Heracleum maximum',  
+    scientificName == 'Potentilla anserina' ~ 'Argentea anserina',  
+    scientificName == 'Sabulina rubella' ~ 'Minuartia rubella',
+    TRUE ~ scientificName
+  ))
+
+target_spp <- read.csv(paste0(here(), '/data/processed/target_spp_synonyms.csv')) %>% 
+  drop_na(Species)
 ```
 
 
 ```{r Append presence absence to each museum record species}
 
 target_spp <- target_spp %>% 
-  dplyr::select(scientificName, scientificNameAuthorship, Species) %>% 
-  mutate(Occurrence = if_else(.$scientificName %in% rmbl_spp$scientificName, 1, 0)) 
+  dplyr::select(Group:Node.1, Species, scientificName) %>% 
+  mutate(occurrence = if_else(.$scientificName %in% rmbl_spp$scientificName, 1, 0)) %>% 
+  na_if("") %>% 
+  mutate(Node.1 = replace_na(Node.1, 'Vascular')) %>% 
+  mutate('PrtyFlrs' = case_when(
+    Group != 'angiosperms' ~ 0,
+    Order != 'Poales' ~ 0,
+    TRUE ~ 1
+  ))
 
-testing_data <- left_join(testing_data, target_spp, by = c('scrubbed_species_binomial'='Species')) %>% 
-  dplyr::select(-scrubbed_species_binomial)
+testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>% 
+  dplyr::select(-geometry) %>% 
+  group_by(Iteration, scrubbed_species_binomial) %>% # the record further in space is
+  slice_min(n = 1, order_by = distances) %>%  # pruned in this step 
+  left_join(., target_spp, by = c('scrubbed_species_binomial' ='Species')) # %>% 
+  mutate(occurrence = if_else(scrubbed_species_binomial %in% scientificName, 1, occurrence))
 
-rm(target_spp, abc)
+rm(target_spp, rmbl_spp)
 ```
 
 
 ## Assess Propotion of True Records
 
+```{r}
+
+dabs <- testing_data %>% 
+  filter(occurrence == 0) %>% 
+  arrange(distances) %>% 
+  ungroup() %>% 
+  distinct(scrubbed_species_binomial, .keep_all = T)
+
+# I made it to 17km out
+```
+
+
 ```{r, eval = F, warning = F}
+
 td1 <- testing_data %>% 
   arrange(distances) %>% 
   ungroup() %>% 
-  mutate(roll_sum = RcppRoll::roll_sum(occurrence, 5000, align = "right", fill = NA)/5000)
+  mutate(roll_sum = RcppRoll::roll_sum(occurrence, 500, align = "right", fill = NA)/500)
 
 ggplot(td1, aes(x = distances, y = occurrence)) +
-  geom_jitter(alpha = 0.01) +
-  geom_smooth()
+  geom_jitter(alpha = 0.01) 
 
 td1$cuts <- cut(td1$distances, breaks = c(seq(0:50)*2000))
 
-ggplot(td1, aes(x = cuts, y = roll_sum)) +
+
+summary(binom_model <- glm(occurrence ~ distances, family = binomial, data = td1))
+newdata <- data.frame(distances = seq(min(td1$distances), max(td1$distances),len=500))
+
+#use fitted model to predict values of vs
+newdata$occurrence = predict(binom_model, newdata, type="response")
+
+#plot logistic regression curve
+plot(occurrence ~ distances, data=td1, col="steelblue")
+lines(occurrence ~ distances, newdata, lwd=2)
+
+
+
+ggplot(td1, aes(x = distances, y = roll_sum)) +
   geom_density(stat = 'identity')
 
-
 # Model 2 Using rollmeans as a predictor
-summary(model <- glm(occurrence ~ distances, family = poisson, data = td1))
+summary(model <- glm(occurrence ~ distances + PrtyFlrs, family = poisson, data = td1))
 pchisq(2 * (logLik(model) - logLik(model)), df = 1, lower.tail = FALSE)
 (est <- cbind(Estimate = coef(model), confint(model)))
 
-newdata1 <- data.frame(distances = mean(td1$distances))
+newdata1 <- data.frame(distances = mean(td1$distances),  PrtyFlrs = c(0,1))
 newdata1$phat <- predict(model, newdata1, type = "response")
 
 newdata2 <- data.frame(
-  distances = rep(seq(from = min(td1$distances), to = max(td1$distances), length.out = 100), 3)
+  distances = rep(seq(from = min(td1$distances), to = max(td1$distances), length.out = 101), 3),
+  PrtyFlrs = rep(0:1, length.out = 303)
 )
 
 newdata2 <- cbind(newdata2, predict(model, newdata2, type = "link", se.fit=TRUE))
@@ -369,26 +455,16 @@ newdata2 <- within(newdata2, {
   LL <- exp(fit - 1.96 * se.fit)
   UL <- exp(fit + 1.96 * se.fit)
 })
-
-ggplot(newdata2, aes(distances, occurrences)) +
-  geom_ribbon(aes(ymin = LL, ymax = UL), alpha = .5, fil = 'yellow' ) +
-  geom_line(size = 1) +
+newdata2$PrtyFlrs <- as.factor(newdata2$PrtyFlrs)
+ggplot(newdata2, aes(distances, occurrences, groups = PrtyFlrs)) +
+  geom_point(aes(colour = PrtyFlrs)) +
+  geom_line(aes(group = PrtyFlrs, colour = PrtyFlrs))+
   labs(x = "Distance (m)", y = "Proportion of True Records")
 
-
-simulationOutput <- DHARMa::simulateResiduals(fittedModel = model, plot = F)
+simulationOutput <- DHARMa::simulateResiduals(model, plot = F, nBoot = 1000)
 plot(simulationOutput)
 DHARMa::testDispersion(simulationOutput)
 
-# testUniformity() #- tests if the overall distribution conforms to expectations
-# testOutliers() #- tests if there are more simulation outliers than expected
-# testDispersion() #- tests if the simulated dispersion is equal to the observed dispersion
-# testQuantiles() #- fits a quantile regression or residuals against a predictor (default predicted value), and tests of this conforms to the expected quantile
-
-# testZeroinflation() #- tests if there are more zeros in the data than expected from the simulations
-# testGeneric() #- test if a generic summary statistics (user-defined) deviates from model expectations
-# testTemporalAutocorrelation() #- tests for temporal autocorrelation in the residuals
-# testSpatialAutocorrelation()
 ```
 
 
@@ -397,19 +473,16 @@ DHARMa::testDispersion(simulationOutput)
 split data set
 ```{r split data set, echo = F}
 testing_data$distances <- testing_data$distances * -1
-index <- caret::createDataPartition(testing_data$Occurrence, p = .70, list = FALSE)
+index <- caret::createDataPartition(testing_data$occurrence, p = .70, list = FALSE)
 train <- testing_data[ index, ]
 test  <- testing_data[-index, ]
 rm(index)
-
-plot(vs ~ hp, data=mtcars, col="steelblue")
-lines(vs ~ hp, newdata, lwd=2)
 
 ```
 
 
 ```{r fit model, echo = F, message = F}
-allspecies_log <- glm(Occurrence ~ distances, data = train, family = "binomial")
+allspecies_log <- glm(occurrence ~ distances, data = train, family = "binomial")
 mod_sum <- broom::tidy(allspecies_log)
 mod_sum$p.value <- '< 0.001'
 confint_res <- confint(allspecies_log)
