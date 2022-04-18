@@ -135,7 +135,7 @@ rm(rcs_pr_grid)
 
 maybe just take the mean # of records from the adjacent cells? will then need to repeatedly subset the spp. richness from there...
 
-The grid cell containing the RMBL records has a surplus of records relative to cells in other areas. It is challenging to model how many records may occur in this area without the Field Station Existence. Here we take an absurdly conservative approach to calculate the number of records which may exist in the area by taking the mean of the surrounding grid cells. The reason this approach will be conservative is that nearly all of the adjacent cells do **not** have road access to them, or they are in fact largely occupied by a ton and private property. 
+The grid cell containing the RMBL records has a surplus of records relative to cells in other areas. It is challenging to model how many records may occur in this area without the Field Station Existence. Here we take an absurdly conservative approach to calculate the number of records which may exist in the area by setting the number of records form the cell containing RMBL equal to the most collections from an adjacent cell. The reason this approach will be conservative is that nearly all of the adjacent cells do **not** have road access to them, or they are in fact largely occupied by a ton and private property. 
 
 ```{r Identify Cells Adjacent to RMBL to determine how large of sample to take from RMBL Cell, warning = F}
 grids_out <- poly100 %>% 
@@ -157,11 +157,12 @@ recs2sample <- filter(public_lands_ownership, ID %in% grids_out$ID) %>%
   st_drop_geometry() %>% 
   distinct(ID, .keep_all = T) %>% 
   ungroup() %>% 
-  summarize(third_quart = round(quantile(n, prob = 0.75), 0))
+  summarize(third_quart = max(n))
+  #summarize(third_quart = round(quantile(n, prob = 0.75), 0))
 
 ```
 
-90! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area. Anyways. We went with the third quantile rather than the mean value due to the adjacent cells being in road less wilderness areas, or for one having  a high proportion of private ownership. 
+137! Records to subset per iteration, I would estimate the real value to be around 200-250 given the ability to just drive up to the area; this is much in line with similar sub-alpine access via a good road. Anyways. We went with the third quantile rather than the mean value due to the adjacent cells being in road less wilderness areas, or for one having  a high proportion of private ownership. 
 
 ```{r prep data for going into sampler, warning = F}
 
@@ -186,7 +187,7 @@ focal_records  <- focal_records %>%
   st_drop_geometry()
 
 abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub, 
-                        tSS = 87, rSS = 0.9, replicates = 250)
+                        tSS = 137, rSS = 0.9, replicates = 250)
 
 rm(focal_records, grid2rm, grids_out, poly100, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
 ```
@@ -338,19 +339,13 @@ write.csv(target_fam, paste0(here(), '/data/processed/target_spp_synonyms.csv'),
 rm(rmbl_fam, target_fam, WFO.data)
 ```
 
-```{r}
+While running these results several limitations of my digitization of the Vascular Plant list became evident. I reviewed the RMBL absence records up to 20 km from the center of the field station and updated records which were either missed entirely (the new csv being imported), or not updated appropriately via any taxonomic cleaning. 
+```{r Update names in dataset to reflect current taoxnomic opinions}
 
-# Draba oligosperma is in the REAL rmbl list
-# Veronica americana is in the real rmbl list
-# Androsace septentrionalis is in the real rmbl list
-# Amelanchier pumila in RMBL needs recode to A. alnifolia
-# Ivesia gordonii is IN REAL RMBL vascular plant list
-# Hypericum maybe ambigious 
-# Senecio crassulus is in real RMBL list
-# Castilleja miniata is in the real RMBL list
-# Minuartia obtusiloba should be in the RMBL digital list
-
-rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv'))
+rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv')) %>% 
+  rbind(read.csv(paste0(here(), '/data/processed/missed_rmbl_species.csv'))) # my digitization of the 
+# rmbl vascular plant checklist left something to be desired, I missed (at least) these taxa. I looked
+# them u pby handn on WFO and transcribed the info
 
 rmbl_spp <- rmbl_spp %>% 
   mutate(scientificName = case_when(
@@ -362,6 +357,7 @@ rmbl_spp <- rmbl_spp %>%
     scientificName == 'Heracleum sphondylium' ~ 'Heracleum maximum',  
     scientificName == 'Potentilla anserina' ~ 'Argentea anserina',  
     scientificName == 'Sabulina rubella' ~ 'Minuartia rubella',
+    scientificName == 'Smelowskia calycina' ~ 'Smelowskia americana',
     TRUE ~ scientificName
   ))
 
@@ -371,7 +367,6 @@ target_spp <- read.csv(paste0(here(), '/data/processed/target_spp_synonyms.csv')
 
 
 ```{r Append presence absence to each museum record species}
-
 target_spp <- target_spp %>% 
   dplyr::select(Group:Node.1, Species, scientificName) %>% 
   mutate(occurrence = if_else(.$scientificName %in% rmbl_spp$scientificName, 1, 0)) %>% 
@@ -379,18 +374,19 @@ target_spp <- target_spp %>%
   mutate(Node.1 = replace_na(Node.1, 'Vascular')) %>% 
   mutate('PrtyFlrs' = case_when(
     Group != 'angiosperms' ~ 0,
-    Order != 'Poales' ~ 0,
+    Group == 'angiosperms' & Order == 'Poales' ~ 0,
     TRUE ~ 1
   ))
 
 testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>% 
-  dplyr::select(-geometry) %>% 
+ # dplyr::select(-geometry) %>% 
   group_by(Iteration, scrubbed_species_binomial) %>% # the record further in space is
   slice_min(n = 1, order_by = distances) %>%  # pruned in this step 
   left_join(., target_spp, by = c('scrubbed_species_binomial' ='Species')) # %>% 
-  mutate(occurrence = if_else(scrubbed_species_binomial %in% scientificName, 1, occurrence))
+#  mutate(occurrence = if_else(scrubbed_species_binomial %in% scientificName, 1, occurrence))
 
-rm(target_spp, rmbl_spp)
+rm(target_spp, rmbl_spp, abc, poly100_unique, poly100_t)
+rm(list = lsf.str())
 ```
 
 
@@ -398,86 +394,40 @@ rm(target_spp, rmbl_spp)
 
 ```{r}
 
-dabs <- testing_data %>% 
+absent_spp <- testing_data %>% 
   filter(occurrence == 0) %>% 
   arrange(distances) %>% 
   ungroup() %>% 
   distinct(scrubbed_species_binomial, .keep_all = T)
 
 # I made it to 17km out
+rm(absent_spp, grids, rmbl_plant_list)
 ```
 
 
 ```{r, eval = F, warning = F}
 
-td1 <- testing_data %>% 
-  arrange(distances) %>% 
-  ungroup() %>% 
-  mutate(roll_sum = RcppRoll::roll_sum(occurrence, 500, align = "right", fill = NA)/500)
-
-ggplot(td1, aes(x = distances, y = occurrence)) +
-  geom_jitter(alpha = 0.01) 
-
-td1$cuts <- cut(td1$distances, breaks = c(seq(0:50)*2000))
-
-
-summary(binom_model <- glm(occurrence ~ distances, family = binomial, data = td1))
-newdata <- data.frame(distances = seq(min(td1$distances), max(td1$distances),len=500))
-
-#use fitted model to predict values of vs
-newdata$occurrence = predict(binom_model, newdata, type="response")
-
-#plot logistic regression curve
-plot(occurrence ~ distances, data=td1, col="steelblue")
-lines(occurrence ~ distances, newdata, lwd=2)
-
-
-
-ggplot(td1, aes(x = distances, y = roll_sum)) +
-  geom_density(stat = 'identity')
-
-# Model 2 Using rollmeans as a predictor
-summary(model <- glm(occurrence ~ distances + PrtyFlrs, family = poisson, data = td1))
-pchisq(2 * (logLik(model) - logLik(model)), df = 1, lower.tail = FALSE)
-(est <- cbind(Estimate = coef(model), confint(model)))
-
-newdata1 <- data.frame(distances = mean(td1$distances),  PrtyFlrs = c(0,1))
-newdata1$phat <- predict(model, newdata1, type = "response")
-
-newdata2 <- data.frame(
-  distances = rep(seq(from = min(td1$distances), to = max(td1$distances), length.out = 101), 3),
-  PrtyFlrs = rep(0:1, length.out = 303)
-)
-
-newdata2 <- cbind(newdata2, predict(model, newdata2, type = "link", se.fit=TRUE))
-newdata2 <- within(newdata2, {
-  occurrences <- exp(fit)
-  LL <- exp(fit - 1.96 * se.fit)
-  UL <- exp(fit + 1.96 * se.fit)
-})
-newdata2$PrtyFlrs <- as.factor(newdata2$PrtyFlrs)
-ggplot(newdata2, aes(distances, occurrences, groups = PrtyFlrs)) +
-  geom_point(aes(colour = PrtyFlrs)) +
-  geom_line(aes(group = PrtyFlrs, colour = PrtyFlrs))+
-  labs(x = "Distance (m)", y = "Proportion of True Records")
-
-simulationOutput <- DHARMa::simulateResiduals(model, plot = F, nBoot = 1000)
-plot(simulationOutput)
-DHARMa::testDispersion(simulationOutput)
+#td1 <- testing_data %>% 
+#  arrange(distances) %>% 
+#  ungroup() %>% 
+#  mutate(roll_sum = RcppRoll::roll_sum(occurrence, 500, align = "right", fill = NA)/500)
+#td1$cuts <- cut(td1$distances, breaks = c(seq(0:50)*2000))
+#ggplot(td1, aes(x = distances, y = roll_sum)) +
+#  geom_density(stat = 'identity')
 
 ```
 
 
 ## Logistic Regression Approach
 
+I attempted to fit Poisson, Negative binomial, zero inflated negative binomial models, but they did not do so hot. Instead the much more useful Logistic regression is fit here. 
+
 split data set
 ```{r split data set, echo = F}
-testing_data$distances <- testing_data$distances * -1
 index <- caret::createDataPartition(testing_data$occurrence, p = .70, list = FALSE)
 train <- testing_data[ index, ]
 test  <- testing_data[-index, ]
 rm(index)
-
 ```
 
 
@@ -494,6 +444,7 @@ knitr::kable(model_sum_tab)
 ```
 
 We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
+
 ```{r Classification Table, echo = F}
 pred_prob <- predict(allspecies_log, test, type = "response")
 # Create a probability table for the TRAINING Data
@@ -509,7 +460,8 @@ rownames(ctab_report) <- c('Absence','Presence')
 colnames(ctab_report) <- c('Absence_train', 'Presence_train', 
                            'Absence_test', 'Presence_test')
 knitr::kable(ctab_report)
-rm(ctab_report)
+
+rm(ctab_report, pred_prob, confint_res)
 ```
 
 ```{r Model Diagnostics, echo = F, warning = F}
@@ -535,14 +487,14 @@ evaluation_table <- data.frame(
   )
 evaluation_table$Value <- round(evaluation_table$Value, 2)
 knitr::kable(evaluation_table)
-rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc, pair, ctab_train, ctab_test, evaluation_table)
+rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc, pair, ctab_train, ctab_test, evaluation_table, mod_sum, model_sum_tab)
 ```
 
 ```{r create prediction plot, warning = F, echo = F}
 newdata1 <- with(testing_data, data.frame(distances = mean(distances)))
 newdata1$probability <- predict(allspecies_log, newdata = newdata1, type = "response")
 newdata2 <- with(testing_data, 
-                 data.frame(distances = rep(seq(from = 0.1, to = 1, length.out = 10000), 4),
+                 data.frame(distances = rep(seq(from = min(testing_data$distances), to = max(testing_data$distances), length.out = 10000), 4),
                                           distances = mean(distances)))
 newdata3 <- cbind(newdata2, predict(allspecies_log, newdata = newdata2, type = "link",
     se = TRUE))
@@ -554,18 +506,145 @@ newdata3 <- within(newdata3, {
 
 testing_data$PredictedProb <- ifelse(testing_data$occurrence == 1, 1, 0)
 
+coin_flip <- filter(newdata3, PredictedProb >= 0.5) %>% 
+  arrange(PredictedProb) %>% 
+  slice_head() %>% 
+  pull(distances) 
+slim <- filter(newdata3, PredictedProb >= 0.25) %>% 
+  arrange(PredictedProb) %>% 
+  slice_head() %>% 
+  pull(distances)
+
 ggplot(newdata3, aes(x = distances, y = PredictedProb)) + 
-#  geom_ribbon(aes(ymin = LL, ymax = UL), fill = 'red', alpha = 0.8) + 
-  geom_line() +
   geom_jitter(data = testing_data, aes(x = distances , y= PredictedProb), 
              alpha = 0.015, shape = 19, 
              height = 0.05, width = 0) +
-  labs(title="Binomial Regression with Prediction Intervals and Data",
+  geom_ribbon(aes(ymin = LL, ymax = UL), fill = 'red', alpha = 0.8) + 
+  geom_line(lwd = 2) +
+  
+  geom_segment(aes(x = 0, xend = coin_flip, y = 0.50, yend = 0.50), lty = 3) +
+  geom_segment(aes(x = 0, xend = slim, y = 0.25, yend = 0.25), lty = 3) +
+  geom_segment(aes(x = coin_flip, xend = coin_flip, y = 0, yend = 0.50), lty = 3) +
+  geom_segment(aes(x = slim, xend = slim, y = 0, yend = 0.25), lty = 3) +
+  
+  theme_classic() +
+  labs(title="Binomial Regression with Prediction Intervals and Original Data",
        x ="Distance (m)", y = "Occurrence") +
   theme(plot.title = element_text(hjust = 0.5)) +
-  ylim(0,1) +
-  theme_classic()
+  ylim(0,1) 
 
-rm(newdata1, newdata2, newdata3)
+rm(newdata1, newdata2, allspecies_log, test, train, newdata3)
+```
+
+### Attempt to improve resolution of records via inclusion of level 4 ecoregions
+
+
+```{r Import and Buffer Field Station, warning = F}
+
+ecoregions <- sf::read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>% 
+  st_transform(5070)
+
+poly_coords <- st_read(
+  paste0(here(), '/data/processed/BIEN_polygons', '2022-03-31', '.shp'), 
+  quiet = T) 
+poly100 <- poly_coords[7,] %>% 
+  st_transform(st_crs(ecoregions))
+poly100_bb <- poly100 %>%  
+  st_bbox()
+
+ecoregions <- ecoregions %>% 
+  st_crop(poly100_bb)
+rmbl <- st_centroid(poly100) %>% 
+  st_transform(32613) %>% 
+  st_buffer(10000) %>% 
+  st_transform(st_crs(ecoregions))
+
+ggplot() +
+  geom_sf(data = ecoregions, aes(fill = US_L4NAME)) +
+  geom_sf(data = rmbl, fill = NA, color = 'black', lwd = 1, lty = 5)
+
+rm(poly_coords, poly100)
+```
+
+```{r intersect field station to ecoregion}
+
+adj_L4 <- st_intersection(rmbl, ecoregions) %>% 
+  distinct(US_L4NAME, .keep_all = T) %>% 
+  pull(US_L4CODE)
+
+poly100_t_dist <- st_transform(poly100_t_dist, st_crs(ecoregions))
+L4 <- st_intersection(poly100_t_dist, ecoregions) %>% 
+  dplyr::select(Record_ID, US_L4CODE, US_L4NAME) %>% 
+  st_drop_geometry()
+
+rm(poly100_t_dist, ecoregions, poly100_bb, rmbl)
+```
+
+The records within the distances where the midpoint of the logistic regression is may readily be acquired. If one is so interested they may acquire further records by focusing on 
+```{r Identify probability values and pull out from dataset}
+
+closest_records <- testing_data %>% 
+  group_by(scrubbed_species_binomial) %>% 
+  arrange(distances) %>% 
+  left_join(L4, by = 'Record_ID') %>% 
+  mutate(TargetL4 = if_else(US_L4CODE %in% adj_L4, 'TARGET', 'NON-TARGET')) %>% 
+  slice_head() %>% 
+  filter(PrtyFlrs == 1)
+
+kept_recs <- closest_records %>% 
+  filter(distances <= coin_flip)
+
+half2quarter <- closest_records %>% 
+  filter(distances >= slim)
+
+prDF <- data.frame(
+  'Habitat' = c(
+    'Target',
+    'Non-Target'
+  ),
+  'Sample' = c(
+  nrow(subset(half2quarter, TargetL4 == 'TARGET')), 
+  nrow(subset(half2quarter, TargetL4 == 'NON-TARGET'))
+  ),
+  'Occurrence' = c(
+  nrow(subset(half2quarter, TargetL4 == 'TARGET' & occurrence == 1)),
+  nrow(subset(half2quarter, TargetL4 == 'NON-TARGET' & occurrence == 1))
+  ),
+  'Proportion' = c(
+  nrow(subset(half2quarter, TargetL4 == 'TARGET' & occurrence == 1)) /
+    nrow(subset(half2quarter, TargetL4 == 'TARGET')),
+  nrow(subset(half2quarter, TargetL4 == 'NON-TARGET' & occurrence == 1)) /
+    nrow(subset(half2quarter, TargetL4 == 'NON-TARGET')) 
+  )
+)
+
+prop.test(x = # relationship significant for the tail of the distribution, 
+            # but not enough records to warrant chasing them ~ 30/222
+            # relationship not as expected from 0.5 - 0.25 probability - no 
+            # justification to warrant these results
+            c(
+              prDF$Occurrence[1], 
+              prDF$Occurrence[2]
+              ), 
+          n = 
+            c(
+              prDF$Sample[1], 
+              prDF$Sample[2]
+              ),
+          alternative = "greater", conf.level = 0.95
+          )
+# may be worth mentioning in results that some people may find this useful
+
+rm(prDF, half2quarter, closest_records, coin_flip, slim, L4, adj_L4, testing_data)
+```
+
+write out results to csv, these results will all have SDM's generated of them.
+
+```{r}
+kept_recs <- kept_recs %>% 
+  select(scrubbed_species_binomial)
+
+write.csv(kept_recs, paste0(here(), '/data/processed/spp2model.csv'), row.names = F)
+rm(kept_recs)
 ```
 
