@@ -1,0 +1,161 @@
+---
+title: "phenology_windows"
+author: "steppe"
+date: '2022-04-22'
+output: html_document
+---
+
+We extensively investigate the spatial filtering of ecological interactions. We make a short and cursory glance at the temporal filters upon ecological interactions. 
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(sf) # spatial data compliant with tidyverse
+library(raster) # raster data
+library(here)
+library(lubridate)
+library(phest)
+```
+
+
+```{r}
+spp_occurrences_full1 <- st_read(here("data/raw/BIEN_occurrence_records_full2022-04-22.shp"), quiet = T)
+```
+
+
+```{r Import and Buffer Field Station, warning = F}
+
+ecoregions <- sf::read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>% 
+  st_transform(5070)
+
+poly_coords <- st_read(
+  paste0(here(), '/data/processed/BIEN_polygons', '2022-03-31', '.shp'), 
+  quiet = T) 
+poly100 <- poly_coords[7,] %>% 
+  st_transform(st_crs(ecoregions))
+poly100_bb <- poly100 %>%  
+  st_bbox()
+
+ecoregions <- ecoregions %>% 
+  st_crop(poly100_bb)
+rmbl <- st_centroid(poly100) %>% 
+  st_transform(32613) %>% 
+  st_buffer(15000) %>% 
+  st_transform(st_crs(ecoregions))
+
+ggplot() +
+  geom_sf(data = ecoregions, aes(fill = US_L4NAME)) +
+  geom_sf(data = rmbl, fill = NA, color = 'black', lwd = 1, lty = 5)
+
+rm(poly_coords, poly100, poly100_bb)
+```
+
+```{r intersect field station to ecoregion, warning = F}
+adj_L4 <- st_intersection(rmbl, ecoregions) %>% 
+  distinct(US_L4NAME, .keep_all = T) %>% 
+  pull(US_L4CODE)
+ecoregions <- ecoregions %>% 
+  filter(US_L4CODE %in% adj_L4) %>% 
+  dplyr::select(US_L4CODE, US_L4NAME)
+
+spp_occurrences_full1 <- st_transform(spp_occurrences_full1, st_crs(ecoregions))
+spp_target_ecoregions <- st_intersection(spp_occurrences_full1, ecoregions) %>% 
+  st_drop_geometry() %>% 
+  rename('Species' = scrbb__,
+         'Date' = dt_cllc) %>% 
+  drop_na(Date)
+
+ggplot() +
+  geom_sf(data = ecoregions, aes(fill = US_L4NAME)) +
+  geom_sf(data = rmbl, fill = NA, color = 'black', lwd = 1, lty = 5) 
+
+rm(poly100_t_dist, ecoregions, poly100_bb, adj_L4)
+```
+
+```{r warning = F}
+
+snow_files <- paste0(paste0(here(), '/data/raw/snow_cover/'), 
+                      list.files(paste0(here(), '/data/raw/snow_cover'))
+)
+
+
+# snow_free_day <- function(x){
+
+  # this function serves to reduce the periodicity by which the weibull distribution
+  # generates biologically impossible esimates of Phenological events. (See
+  # Iler et al. 2021 for details behind this rationale.
+  
+  # INPUTS, x = a list of files paths to .nc files of snow cover see
+  # https://doi.org/10.6084/m9.figshare.5902381.v4 
+  
+  x_year_snow <- brick(snow_files[i])
+  
+  gothic <- st_centroid(rmbl) %>% 
+    st_transform(st_crs(x_year_snow))
+  
+  res <- vector(mode = "list", length = length(snow_files))
+  for (i in 1:length(snow_files)){
+  
+    x_year_snow <- brick(snow_files[i])
+    res[i] <- data.frame('Snow' = t(extract(x_year_snow, gothic))) %>% 
+      rownames_to_column('Date') %>% 
+      mutate(Date = str_remove(Date, 'X'),
+             DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
+             Snow_days = cumsum(Snow)) %>% 
+      arrange(DOY) %>% 
+      filter(Snow == 0, DOY <= 212) %>% 
+      slice_max(Snow_days, with_ties = F)
+  }
+  
+  res <- data.frame('Date' = unlist(res)) %>% 
+    mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")))
+
+#  return(res)
+#}
+  
+
+```
+
+
+
+```{r}
+
+input <- spp_target_ecoregions %>% 
+  dplyr::select(Species, Date) %>%
+  group_by(Species) %>% 
+  filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% 
+  mutate(Observations  = n()) %>% 
+  filter(Observations >= 5) %>% 
+  split(., .$Species)
+
+weibull_wrapper <- function(x){
+  
+  taxon <- x$Species[1]
+  x$DOY <- lubridate::yday(as.Date(x$Date, format = "%Y-%m-%d")) + 1
+  observations <- x$DOY
+  sample_size <- nrow(x)
+  
+  frst_hrb <- min(observations)
+  lst_hrb <- max(observations)
+  
+  onset_est <- weib.limit(observations, upper=FALSE, alpha = .2)
+  end_est   <- weib.limit(observations, upper=TRUE , alpha = .2)
+
+  a <- bind_rows(
+    data.frame(t(data.frame(onset_est))),
+    data.frame(t(data.frame(end_est)))
+  ) %>% 
+    rownames_to_column('event') %>% 
+    cbind(., taxon, sample_size, frst_hrb, lst_hrb) %>% 
+    mutate(est_duration = round(estimate - lag(estimate, default = first(estimate)), 0))
+    
+  return(a)
+}
+
+
+output <- bind_rows(lapply(input, weibull_wrapper))
+
+rm(as, observations, today)
+```
+
+
+Tran, Hoang Viet; Nguyen, Phu; Ombadi, Mohammed; Hsu, Kuo-lin; Sorooshian, Soroosh; Xia, Qing (2018): A cloud-free MODIS snow cover dataset for the contiguous United States from 2000 to 2017. figshare. Dataset. https://doi.org/10.6084/m9.figshare.5902381.v4 

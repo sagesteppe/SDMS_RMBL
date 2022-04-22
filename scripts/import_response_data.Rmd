@@ -50,11 +50,16 @@ todo <- anti_join(predicted, species, by = "scientificName")
 also_todo <- anti_join(species, predicted, by = "scientificName")
 
 done <- inner_join(predicted, species, by = "scientificName") %>% 
-  distinct(scientificName, .keep_all = T)
+  distinct(scientificName, .keep_all = T) %>% 
+  dplyr::select('scrubbed_species_binomial' = scrubbed_species_binomial.x, scientificName)
 
+species_full <- bind_rows(todo, also_todo, done) %>% 
+  pull(scrubbed_species_binomial)
 
+rm(species, predicted, todo, also_todo, done)
 ```
 
+Note that many parts of this pipeline were re-run. Namely, a first subset of vascular plant species from RMBL (ca. 370) were included as a beta test. THen additional species found via the database distance search were run through to validate distance based richness gleaning.
 
 ```{r Query BIEN for occurrence records, eval = F}
 species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
@@ -77,13 +82,33 @@ spp_occurrences1 <- spp_occurrences %>%
   st_as_sf(coords = c(x= "longitude", y = "latitude"), crs = 4326) %>% 
   st_transform(4269)
 
-ecoregion_bound <- st_transform(ecoregion_bound, 4269)
+ecoregion_bound <- st_transform(ecoregion_bound, 4269) # files come in a box, reduce to ecoregion
 spp_occurrences1 <- st_intersection(ecoregion_bound, spp_occurrences1)
 
 fname <- paste0('BIEN_occurrence_records_', Sys.Date(), '.shp')
-
 st_write(spp_occurrences1, here("data/raw", fname), append = F)
 rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname)
+
+# full batch here needs to be performed 
+
+spp_occurrences_full <- BIEN::BIEN_occurrence_box(
+    min.lat = eco_bound_bbox[2], max.lat = eco_bound_bbox[4],
+    min.long = eco_bound_bbox[1],  max.long = eco_bound_bbox[3],
+    species = species_full,
+    cultivated = F, natives.only = F
+)
+
+spp_occurrences_full1 <- spp_occurrences_full %>% 
+  st_as_sf(coords = c(x= "longitude", y = "latitude"), crs = 4326) %>% 
+  st_transform(4269) %>% 
+  filter(!datasource %in% c('FIA', 'VegBank'))
+
+ecoregion_bound <- st_transform(ecoregion_bound, 4269)
+spp_occurrences_full1 <- st_intersection(ecoregion_bound, spp_occurrences_full1)
+fname <- paste0('BIEN_occurrence_records_full', Sys.Date(), '.shp')
+
+st_write(spp_occurrences_full1, here("data/raw", fname), append = F)
+rm(spp_occurrences_full1, spp_occurrences_full, eco_bound_bbox, fname)
 ```
 
 To avoid re-running the code above, we will read these results from a local source. We will remove duplicate records within each taxon. 
