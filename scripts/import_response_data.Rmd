@@ -21,7 +21,7 @@ source(here::here('scripts/sdm_functions.R'))
 
 ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'))
 
-ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>% 
+ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp"), quiet = T) %>% 
   dplyr::select(NA_L3CODE, NA_L3NAME) %>% 
   filter(NA_L3NAME == 'Southern Rockies') %>% 
   st_union() %>% 
@@ -33,6 +33,28 @@ ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>%
 We will need to bring in our Species Data. These data were found by querying the BIEN database in a radius of 40km from our study site. A great number of non-vascular plants, or non-biotic pollinated plants have been removed elsewhere. As the scope of our study is to evaluate pollinator interactions.
 
 We will then query these species to the BIEN database, as the state lists seem to be subset, we will download those and then clip the records to our bounding area. Remember we already standardized the names to/from this database. This will take some work if you want to do this. Check my github, this happens in more than most scripts. 
+
+```{r Import RMBL biotically pollinated plants list AND list generated form herbarium queries}
+species <- read.csv(here("data/processed/rmbl_wfo_synonyms.csv")) %>% 
+  mutate('PrtyFlrs' = case_when(
+    Group != 'angiosperms' ~ 0,
+    Group == 'angiosperms' & Order == 'Poales' ~ 0,
+    TRUE ~ 1
+  )) %>% 
+  filter(PrtyFlrs == 1) %>% 
+  dplyr::select(scientificName, 'scrubbed_species_binomial' = Species) 
+
+predicted <- read.csv(here("data/processed/spp2model.csv"))
+  
+todo <- anti_join(predicted, species, by = "scientificName")
+also_todo <- anti_join(species, predicted, by = "scientificName")
+
+done <- inner_join(predicted, species, by = "scientificName") %>% 
+  distinct(scientificName, .keep_all = T)
+
+
+```
+
 
 ```{r Query BIEN for occurrence records, eval = F}
 species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
