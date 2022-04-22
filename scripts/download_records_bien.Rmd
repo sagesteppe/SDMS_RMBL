@@ -385,6 +385,9 @@ testing_data <- left_join(abc, poly100_t_dist, by = 'Record_ID') %>%
   left_join(., target_spp, by = c('scrubbed_species_binomial' ='Species')) # %>% 
 #  mutate(occurrence = if_else(scrubbed_species_binomial %in% scientificName, 1, occurrence))
 
+
+write.csv(rmbl_spp, paste0(here(), '/data/processed/rmbl_wfo_synonyms.csv'), row.names = F)
+
 rm(target_spp, rmbl_spp, abc, poly100_unique, poly100_t)
 rm(list = lsf.str())
 ```
@@ -642,9 +645,9 @@ write out results to csv, these results will all have SDM's generated of them.
 
 ```{r}
 kept_recs <- kept_recs %>% 
-  select(scrubbed_species_binomial)
+  dplyr::select(scrubbed_species_binomial, scientificName)
 
-write.csv(kept_recs, paste0(here(), '/data/processed/spp2model.csv'), row.names = F)
-rm(kept_recs)
+write.csv(kept_recs1, paste0(here(), '/data/processed/spp2model.csv'), row.names = F)
+rm(kept_recs1)
 ```
 
