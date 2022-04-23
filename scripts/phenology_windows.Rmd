@@ -71,16 +71,20 @@ ggplot() +
 rm(poly100_t_dist, ecoregions, poly100_bb, adj_L4)
 ```
 
-```{r warning = F}
+```{r calculate common snow free dates, warning = F}
 
 snow_files <- paste0(paste0(here(), '/data/raw/snow_cover/'), 
                       list.files(paste0(here(), '/data/raw/snow_cover'))
 )
 
-
-# snow_free_day <- function(x){
-
-  # this function serves to reduce the periodicity by which the weibull distribution
+snow_crs <- st_crs(brick(snow_files[1]))
+gothic <- st_centroid(rmbl) %>% 
+  st_transform(st_crs(snow_crs))
+  
+res <- vector(mode = "list", length = length(snow_files))
+for (i in 1:length(snow_files)){
+    
+  # this serves to reduce the periodicity by which the weibull distribution
   # generates biologically impossible esimates of Phenological events. (See
   # Iler et al. 2021 for details behind this rationale.
   
@@ -88,49 +92,44 @@ snow_files <- paste0(paste0(here(), '/data/raw/snow_cover/'),
   # https://doi.org/10.6084/m9.figshare.5902381.v4 
   
   x_year_snow <- brick(snow_files[i])
+  res[i] <- data.frame('Snow' = t(extract(x_year_snow, gothic))) %>% 
+    rownames_to_column('Date') %>% 
+    mutate(Date = str_remove(Date, 'X'),
+           DOY = yday(as.Date(Date, format = "%Y.%m.%d")) +1,
+           Snow_days = cumsum(Snow)) %>% 
+    arrange(DOY) %>% 
+    filter(Snow == 0, DOY <= 212) %>% 
+    slice_max(Snow_days, with_ties = F)
+}
   
-  gothic <- st_centroid(rmbl) %>% 
-    st_transform(st_crs(x_year_snow))
-  
-  res <- vector(mode = "list", length = length(snow_files))
-  for (i in 1:length(snow_files)){
-  
-    x_year_snow <- brick(snow_files[i])
-    res[i] <- data.frame('Snow' = t(extract(x_year_snow, gothic))) %>% 
-      rownames_to_column('Date') %>% 
-      mutate(Date = str_remove(Date, 'X'),
-             DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
-             Snow_days = cumsum(Snow)) %>% 
-      arrange(DOY) %>% 
-      filter(Snow == 0, DOY <= 212) %>% 
-      slice_max(Snow_days, with_ties = F)
-  }
-  
-  res <- data.frame('Date' = unlist(res)) %>% 
-    mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")))
+res1 <- data.frame('Date' = unlist(res)) %>% 
+  mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
+         third_quart = round(quantile(DOY, 0.75), 0)) 
 
-#  return(res)
-#}
-  
-
+rm(x_year_snow,i, snow_files, rmbl, snow_crs, gothic, res)
 ```
 
 
 
-```{r}
+```{r calculate weibull phenology estimates, echo = F, warning = F}
 
-input <- spp_target_ecoregions %>% 
+cleaner_phenology_records <- spp_target_ecoregions %>% 
   dplyr::select(Species, Date) %>%
   group_by(Species) %>% 
-  filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% 
-  mutate(Observations  = n()) %>% 
-  filter(Observations >= 5) %>% 
+  filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% # these are things without dates put in january
+  mutate(DOY = lubridate::yday(as.Date(Date, format = "%Y-%m-%d")) + 1) %>%  # create doy column
+  filter(DOY >= res1$third_quart[1], DOY <= 274) %>% # only records after snow melt and before October are kept
+  arrange(DOY) %>% 
+  slice_head(prop = 0.9) %>% # remove some of the fruiting collections at the seasons end
+  mutate(Observations  = n()) 
+
+input <- cleaner_phenology_records %>% 
+  filter(Observations >= 10) %>% # weibull requires 10 records to calculate.
   split(., .$Species)
 
 weibull_wrapper <- function(x){
   
   taxon <- x$Species[1]
-  x$DOY <- lubridate::yday(as.Date(x$Date, format = "%Y-%m-%d")) + 1
   observations <- x$DOY
   sample_size <- nrow(x)
   
@@ -144,17 +143,64 @@ weibull_wrapper <- function(x){
     data.frame(t(data.frame(onset_est))),
     data.frame(t(data.frame(end_est)))
   ) %>% 
+    mutate(across(.cols = everything(), round, 0)) %>% 
     rownames_to_column('event') %>% 
     cbind(., taxon, sample_size, frst_hrb, lst_hrb) %>% 
-    mutate(est_duration = round(estimate - lag(estimate, default = first(estimate)), 0))
+    mutate(est_duration = round(estimate - lag(estimate, default = first(estimate)), 0)) %>% 
+    mutate(upper.ci = if_else(upper.ci >= 305, 305, upper.ci))
     
   return(a)
 }
 
-
 output <- bind_rows(lapply(input, weibull_wrapper))
 
-rm(as, observations, today)
+rm(as, observations, today, input, weibull_wrapper, spp_target_ecoregions, res1)
+```
+
+```{r Species without enough records for weibull estimation, warning = F}
+
+input <- cleaner_phenology_records %>% 
+  filter(Observations <= 9, Observations >1) %>% # take everything not suitable for weibull
+  split(., .$Species)
+
+herb_wrapper <- function(x){
+  
+  taxon <- x$Species[1]
+  observations <- x$DOY
+  sample_size <- nrow(x)
+  
+  frst_hrb <- min(observations)
+  lst_hrb <- max(observations)
+  
+  onset_est <- frst_hrb + ((lst_hrb - frst_hrb) * 0.75)
+  end_est <- lst_hrb + ((lst_hrb - frst_hrb) * 1.25)
+  
+   a <- bind_cols(
+    data.frame('onset_est' = t(data.frame(onset_est))),
+    data.frame('end_est' = t(data.frame(end_est)))
+  ) %>% 
+    mutate(across(.cols = everything(), round, 0)) %>% 
+    cbind(., taxon, sample_size, frst_hrb, lst_hrb) %>% 
+    pivot_longer(!taxon:lst_hrb, names_to = 'event', values_to = 'estimate') %>% 
+    mutate(est_duration = round(estimate - lag(estimate, default = first(estimate)), 0))
+  
+   return(a)
+}
+
+output1 <- bind_rows(lapply(input, herb_wrapper))
+
+rm(cleaner_phenology_records)
+```
+
+```{r Generate daily list of possible species in pollen loads}
+
+all <- bind_rows(output, output1)
+
+# temporal range of dates to generate
+min(all$lower.ci, na.rm = T)
+max(all$upper.ci, na.rm = T)
+
+
 ```
 
 
