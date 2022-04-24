@@ -1,0 +1,59 @@
+---
+title: "evaluate_phenology_predictions"
+author: "steppe"
+date: '2022-04-23'
+output: html_document
+---
+
+
+```{r load libraries, results='hide', message=F, warning=F}
+library(tidyverse) # data tidying
+library(here)
+library(lubridate)
+source(here::here('scripts/phen_functions.R'))
+```
+
+We can only test the accuracy of the Weibull method on a subset of cerca 60 species we have created estimates for. An interesting component of the Weibull development paper is that the authors did not actually attempt to estimate phenological events using herbarium records and then test them using the RMBL dataset, but rather used the same testing and training dataset? (wtf this cannot be right must check paper).
+
+While the National Phenology Network, and NEON both collect datasets on the timing of life history events, both seem to focus on taxa in dominant physiognomic classes such as trees. These data unfortunately do not contain information we find useful.
+```{r}
+weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates.csv')) %>% 
+    mutate(taxon = case_when(
+    taxon == 'Adenolinum lewisii' ~ 'Linum lewisii',
+    taxon == 'Ligularia bigelovii' ~ 'Senecio bigelovii',
+    taxon == 'Zigadenus elegans' ~ 'Anticlea elegans',
+    TRUE ~ taxon
+  ))
+
+groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDonna2014.csv')) %>% 
+  dplyr::select(1:2,7:10) %>% 
+  mutate(species = case_when(
+    species == 'Amerosedum lanceolatum' ~ 'Sedum lanceolatum',
+    species == 'Ligularia bigelovii' ~ 'Senecio bigelovii', 
+    species == 'Dugaldia hoopesii' ~ 'Hymenoxys hoopesii',
+    species == 'Erysimum asperum' ~ 'Erysimum capitatum', # this misapplied
+    species == 'Amelanchier pumila' ~ 'Amelanchier alnifolia',
+    species == 'Ligusticum porterii' ~ 'Ligusticum porteri', 
+    species == 'Noccaea montana' ~ 'Noccaea fendleri',
+    species == 'Sedum rosea' ~ 'Rhodiola integrifolia', # this challenging unable to find how
+    # this name was missaplied  to this material
+    species == 'Taraxacum officionale' ~ 'Taraxacum officinale',
+    species == 'Pedicularis bracteoasa' ~ 'Pedicularis bracteosa', 
+    TRUE ~ species
+    )) %>% 
+  mutate(Duration7412 = round(Duration7412,0))
+```
+
+While these data refer to the means of all values over the time period of analyses, these means should still fall within the confidence intervals of the weibull estimates. 
+```{r}
+weibull_estimates_test <- weibull_estimates %>% 
+  filter(taxon %in% groundTruth$species) 
+
+anti_join(groundTruth, weibull_estimates, by = c('species' = 'taxon')) %>% 
+  distinct(species)
+```
+
+
+
+
+CaraDonna, Paul J.; Inouye, David W. (2016): Phenological responses to climate change do not exhibit phylogenetic signal in a subalpine plant community. Wiley. Collection. https://doi.org/10.6084/m9.figshare.c.3307416.v1

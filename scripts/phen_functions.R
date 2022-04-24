@@ -12,18 +12,34 @@ weibull_wrapper <- function(x){
   frst_hrb <- min(observations)
   lst_hrb <- max(observations)
   
-  onset_est <- weib.limit(observations, upper=FALSE, alpha = .2)
-  end_est   <- weib.limit(observations, upper=TRUE , alpha = .2)
+  onset_est <- weib_percentile_ci(observations = observations, iterations = 10, conf = 0.90,
+                              percentile = 0.01, bootstraps = 250, parallelize = "multicore", ncpus = 16)
+  tenth_est <- weib_percentile_ci(observations = observations, iterations = 10, conf = 0.90,
+                              percentile = 0.1, bootstraps = 250, parallelize = "multicore", ncpus = 16)
+  fifty_est <- weib_percentile_ci(observations = observations, iterations = 10, conf = 0.90,
+                              percentile = 0.5, bootstraps = 250, parallelize = "multicore", ncpus = 16)
+  ninety_est <- weib_percentile_ci(observations = observations, iterations = 10, conf = 0.90,
+                                 percentile = 0.9, bootstraps = 250, parallelize = "multicore", ncpus = 16)
+  end_est <- weib_percentile_ci(observations = observations, iterations = 10, conf = 0.90,
+                            percentile = 0.99, bootstraps = 250, parallelize = "multicore", ncpus = 16)
   
-  a <- bind_rows(
+  a <- bind_cols(
     data.frame(t(data.frame(onset_est))),
+    data.frame(t(data.frame(tenth_est))),
+    data.frame(t(data.frame(fifty_est))),
+    data.frame(t(data.frame(ninety_est))),
     data.frame(t(data.frame(end_est)))
   ) %>% 
+    purrr::set_names(c("onset", "tenth", "fifty", "ninety", "end")) %>% 
     mutate(across(.cols = everything(), round, 0)) %>% 
     rownames_to_column('event') %>% 
+    pivot_longer(!event, names_to = 'metric', values_to = 'DOY') %>% 
     cbind(., taxon, sample_size, frst_hrb, lst_hrb) %>% 
-    mutate(est_duration = round(estimate - lag(estimate, default = first(estimate)), 0)) %>% 
-    mutate(upper.ci = if_else(upper.ci >= 305, 305, upper.ci))
+    mutate(est_duration = round(
+      filter(., event == 'estimate' & metric == "end")$DOY -
+        filter(., event == 'estimate' & metric == "onset")$DOY )
+      ) %>% 
+    mutate(DOY = if_else(event == 'high_ci' & DOY >= 305, 305, DOY))
   
   return(a)
 }
@@ -41,8 +57,21 @@ herb_wrapper <- function(x){
   frst_hrb <- min(observations)
   lst_hrb <- max(observations)
   
-  onset_est <- frst_hrb + ((lst_hrb - frst_hrb) * 0.75)
-  end_est <- lst_hrb + ((lst_hrb - frst_hrb) * 1.25)
+  #onset_est <- frst_hrb + ((lst_hrb - frst_hrb) * 0.80)
+  #end_est <- lst_hrb + ((lst_hrb - frst_hrb) * 1.20)
+  
+  
+  onset_est <- if_else(
+    (lst_hrb - frst_hrb) * 0.80 >= 14, 
+    frst_hrb - 14, 
+    frst_hrb + ((lst_hrb - frst_hrb) * 0.80)
+    )
+  
+  end_est <- if_else(
+    (lst_hrb - frst_hrb) * 1.20 >= 14, 
+    lst_hrb + 14, 
+    lst_hrb + ((lst_hrb - frst_hrb) * 1.20)
+    )
   
   a <- bind_cols(
     data.frame('onset_est' = t(data.frame(onset_est))),
