@@ -90,6 +90,82 @@ herb_wrapper <- function(x){
 
 
 ##################################
+####       lwr_snw_bnd        ####
+##################################
+
+lwr_snw_bnd <- function(snow_data, site){
+  
+  # this serves to reduce the periodicity by which the weibull distribution
+  # generates biologically impossible estimates of Phenological events based on 
+  # restriction of onset events via Snow cover. (See
+  # Iler et al. 2021 for details ).
+  
+  # INPUTS, snow_data = a list of files paths to .nc files of snow cover see
+  # https://doi.org/10.6084/m9.figshare.5902381.v4 
+  # site = a study location as an sf object. In this case a single site, 
+  # this untested with multipoint/line/poly objects. 
+  
+  lwr_snw_bnd_res <- vector(mode = "list", length = length(snow_data))
+  for (i in 1:length(snow_data)){
+    
+    x_year_snow <- brick(snow_data[i])
+    lwr_snw_bnd_res[i] <- data.frame('Snow' = t(extract(x_year_snow, site))) %>% 
+      rownames_to_column('Date') %>% 
+      mutate(Date = str_remove(Date, 'X'),
+             DOY = yday(as.Date(Date, format = "%Y.%m.%d")) +1,
+             Snow_days = cumsum(Snow)) %>% 
+      arrange(DOY) %>% 
+      filter(Snow == 0, DOY <= 212) %>% 
+      slice_max(Snow_days, with_ties = F)
+  }
+  
+  lwr_snw_bnd_res <- data.frame('Date' = unlist(lwr_snw_bnd_res)) %>% 
+    mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
+           third_quart = round(quantile(DOY, 0.75), 0)) 
+  
+  return(lwr_snw_bnd_res)
+}
+
+
+##################################
+####       uppr_snw_bnd       ####
+##################################
+
+uppr_snw_bnd <- function(snow_data, site){
+  
+  # this serves to reduce the periodicity by which the weibull distribution
+  # generates biologically impossible estimates of Phenological events based on 
+  # restriction of onset events via Snow cover. (See
+  # Iler et al. 2021 for details ).
+  
+  # INPUTS, snow_data = a list of files paths to .nc files of snow cover see
+  # https://doi.org/10.6084/m9.figshare.5902381.v4 
+  # site = a study location as an sf object. In this case a single site, 
+  # this untested with multipoint/line/poly objects. 
+  
+  upr_snw_bnd_res <- vector(mode = "list", length = length(snow_data))
+  for (i in 1:length(snow_data)){
+    
+    x_year_snow <- brick(snow_data[i])
+    upr_snw_bnd_res[i] <- data.frame('Snow' = t(extract(x_year_snow, site))) %>% 
+      rownames_to_column('Date') %>% 
+      mutate(Date = str_remove(Date, 'X'),
+             DOY = yday(as.Date(Date, format = "%Y.%m.%d")) +1,
+             Snow_days = RcppRoll::roll_mean(Snow, n = 4, na.rm=TRUE, align="right", fill = NA)) %>% 
+      group_by(Snow_days) %>% 
+      arrange(DOY) %>% 
+      filter(Snow == 1, DOY >= 212, Snow_days == 0.75) %>% 
+      slice_min(Snow_days, with_ties = F)
+  }
+  
+  upr_snw_bnd_res <- data.frame('Date' = unlist(upr_snw_bnd_res)) %>% 
+    mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
+           first_quart = round(quantile(DOY, 0.25), 0)) 
+  
+  return(upr_snw_bnd_res)
+}
+
+##################################
 ####       daily_flowers      ####
 ##################################
 

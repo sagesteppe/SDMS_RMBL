@@ -83,67 +83,18 @@ snow_crs <- st_crs(brick(snow_files[1]))
 gothic <- st_centroid(rmbl) %>% 
   st_transform(st_crs(snow_crs))
   
-lwr_snw_bnd <- vector(mode = "list", length = length(snow_files))
-for (i in 1:length(snow_files)){
-    
-  # this serves to reduce the periodicity by which the weibull distribution
-  # generates biologically impossible estimates of Phenological events based on 
-  # restriction of onset events via Snow cover. (See
-  # Iler et al. 2021 for details ).
-  
-  # INPUTS, x = a list of files paths to .nc files of snow cover see
-  # https://doi.org/10.6084/m9.figshare.5902381.v4 
-  
-  x_year_snow <- brick(snow_files[i])
-  lwr_snw_bnd[i] <- data.frame('Snow' = t(extract(x_year_snow, gothic))) %>% 
-    rownames_to_column('Date') %>% 
-    mutate(Date = str_remove(Date, 'X'),
-           DOY = yday(as.Date(Date, format = "%Y.%m.%d")) +1,
-           Snow_days = cumsum(Snow)) %>% 
-    arrange(DOY) %>% 
-    filter(Snow == 0, DOY <= 212) %>% 
-    slice_max(Snow_days, with_ties = F)
-}
-  
-lwr_snw_bnd <- data.frame('Date' = unlist(lwr_snw_bnd)) %>% 
-  mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
-         third_quart = round(quantile(DOY, 0.75), 0)) 
+lower_snow_bound <- lwr_snw_bnd(snow_files, gothic)
 
 ```
 
 ```{r calculate first event where snow present for 3 or more days, warning = F, message = F}
 
-upr_snw_bnd <- vector(mode = "list", length = length(snow_files))
-for (i in 1:length(snow_files)){
-    
-  # this serves to reduce the periodicity by which the weibull distribution
-  # generates biologically impossible estimates of Phenological events.
-  # based on restriction of onset events via Snow cover. (See
-  # Iler et al. 2021 for details.)
-  
-  # INPUTS, x = a list of files paths to .nc files of snow cover see
-  # https://doi.org/10.6084/m9.figshare.5902381.v4 
-  
-  x_year_snow <- brick(snow_files[i])
-  upr_snw_bnd[i] <- data.frame('Snow' = t(extract(x_year_snow, gothic))) %>% 
-    rownames_to_column('Date') %>% 
-    mutate(Date = str_remove(Date, 'X'),
-           DOY = yday(as.Date(Date, format = "%Y.%m.%d")) +1,
-           Snow_days = RcppRoll::roll_mean(Snow, n = 4, na.rm=TRUE, align="right", fill = NA)) %>% 
-    group_by(Snow_days) %>% 
-    arrange(DOY) %>% 
-    filter(Snow == 1, DOY >= 212, Snow_days == 0.75) %>% 
-    slice_min(Snow_days, with_ties = F)
-}
+upper_snow_bound <- uppr_snw_bnd(snow_files, gothic)
 
-upr_snw_bnd <- data.frame('Date' = unlist(upr_snw_bnd)) %>% 
-  mutate(DOY = yday(as.Date(Date, format = "%Y.%m.%d")),
-         first_quart = round(quantile(DOY, 0.25), 0)) 
-
-rm(x_year_snow,i, snow_files, rmbl, snow_crs, gothic)
+rm(x_year_snow,i, snow_files, rmbl, snow_crs, gothic, lwr_snw_bnd, uppr_snw_bnd)
 ```
 
-
+We here calculate weibull based estimates of the date of flowreing onset, cessation, and the dates when 10% of individuals are flowering, peak flowering (50% of individuals), and when 9-% of individuals have flowered. 
 ```{r calculate weibull phenology estimates, echo = F, warning = F}
 
 cleaner_phenology_records <- spp_target_ecoregions %>% 
@@ -195,13 +146,11 @@ flowering_est_long %>%
   geom_point()
 
 rm(weibull_estimates, fixed_estimates, lwr_snw_bnd, upr_snw_bnd)
-
-
 ```
 
 
-Belitz MW, Larsen EA, Ries L, Guralnick RP. The accuracy of phenology estimators for use with sparsely sampled presence-only observations. Methods
-Ecol Evol. 2020;11:1273–1285. https://doi.org/10.1111/2041-210X.13448
+Belitz MW, Larsen EA, Ries L, Guralnick RP. The accuracy of phenology estimators for use with sparsely sampled presence-only observations. Methods Ecol Evol. 2020;11:1273–1285. https://doi.org/10.1111/2041-210X.13448
 
 Tran, Hoang Viet; Nguyen, Phu; Ombadi, Mohammed; Hsu, Kuo-lin; Sorooshian, Soroosh; Xia, Qing (2018): A cloud-free MODIS snow cover dataset for the contiguous United States from 2000 to 2017. figshare. Dataset. https://doi.org/10.6084/m9.figshare.5902381.v4 
+
 Iler, Amy. M, Humphrey, Parris T., Ogilvie,  Jane E., CaraDonna, Paul J. (2021) Conceptual and practical issues limit the utility of statistical estimators of phenological events. Ecosphere 2021, 12 (11). https://doi.org/10.1002/ecs2.3828
