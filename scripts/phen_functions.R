@@ -57,19 +57,15 @@ herb_wrapper <- function(x){
   frst_hrb <- min(observations)
   lst_hrb <- max(observations)
   
-  #onset_est <- frst_hrb + ((lst_hrb - frst_hrb) * 0.80)
-  #end_est <- lst_hrb + ((lst_hrb - frst_hrb) * 1.20)
-  
-  
   onset_est <- if_else(
-    (lst_hrb - frst_hrb) * 0.80 >= 14, 
-    frst_hrb - 14, 
+    (lst_hrb - frst_hrb) * 0.85 >= 7, 
+    frst_hrb - 7, 
     frst_hrb + ((lst_hrb - frst_hrb) * 0.80)
     )
   
   end_est <- if_else(
-    (lst_hrb - frst_hrb) * 1.20 >= 14, 
-    lst_hrb + 14, 
+    (lst_hrb - frst_hrb) * 1.15 >= 7, 
+    lst_hrb + 7, 
     lst_hrb + ((lst_hrb - frst_hrb) * 1.20)
     )
   
@@ -79,8 +75,10 @@ herb_wrapper <- function(x){
   ) %>% 
     mutate(across(.cols = everything(), round, 0)) %>% 
     cbind(., taxon, sample_size, frst_hrb, lst_hrb) %>% 
-    pivot_longer(!taxon:lst_hrb, names_to = 'event', values_to = 'estimate') %>% 
-    mutate(est_duration = round(estimate - lag(estimate, default = first(estimate)), 0)) %>% 
+    pivot_longer(!taxon:lst_hrb, names_to = 'event', values_to = 'DOY') %>% 
+    mutate(DOY = if_else(DOY <= lower_snow_bound$third_quart[1], lower_snow_bound$third_quart[1] + 7, DOY)) %>% 
+    mutate(DOY = if_else(DOY >= upper_snow_bound$first_quart[1], upper_snow_bound$first_quart[1] - 7, DOY)) %>% 
+    mutate(est_duration = round(DOY - lag(DOY, default = first(DOY)), 0))
     
     # DO SOMETHING HERE - SAY IF ESTIMATE ABOVE > 3 WEEKS THEN USE 3 WEEKS BEFORE AND AFTER
     # KNOWN EVENTS TO CONSTRAN THE ESTIMATE WITHIN REASON
@@ -175,8 +173,11 @@ daily_flowers <- function(x){
   # each day of a season, from the earliest flowering taxon to the last 
   # flowering taxon within the list
   
+  x <- x %>% 
+    filter(metric %in% c('tenth', 'ninety', 'onset_est', 'end_est'))
+  
   results <- data.frame(
-    seq(from = min(x$estimate, na.rm = T), to = max(x$estimate, na.rm = T), by = 1),
+    seq(from = min(x$DOY, na.rm = T), to = max(x$DOY, na.rm = T), by = 1),
     x$taxon[1]
   )
   colnames(results) <- c('DOY', 'Taxon')

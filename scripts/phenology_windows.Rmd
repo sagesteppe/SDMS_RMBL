@@ -95,14 +95,14 @@ rm(x_year_snow,i, snow_files, rmbl, snow_crs, gothic, lwr_snw_bnd, uppr_snw_bnd)
 ```
 
 We here calculate weibull based estimates of the date of flowreing onset, cessation, and the dates when 10% of individuals are flowering, peak flowering (50% of individuals), and when 9-% of individuals have flowered. 
-```{r calculate weibull phenology estimates, echo = F, warning = F}
+```{r calculate weibull phenology estimates, echo = F, warning = F, eval = F}
 
 cleaner_phenology_records <- spp_target_ecoregions %>% 
   dplyr::select(Species, Date) %>%
   group_by(Species) %>% 
   filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% # these are things without dates put in january
   mutate(DOY = lubridate::yday(as.Date(Date, format = "%Y-%m-%d")) + 1) %>%  # create doy column
-  filter(DOY >= lwr_snw_bnd$third_quart[1], DOY <= upr_snw_bnd$first_quart[1]) %>% # only records after snow melt and before October are kept
+  filter(DOY >= lower_snow_bound$third_quart[1], DOY <= upper_snow_bound$first_quart[1]) %>% # only records after snow melt and before October are kept
   arrange(DOY) %>% 
   slice_head(prop = 0.9) %>% # remove some of the fruiting collections at the seasons end
   mutate(Observations  = n()) 
@@ -125,10 +125,12 @@ fixed_input <- cleaner_phenology_records %>%
 
 fixed_estimates <- bind_rows(lapply(fixed_input, herb_wrapper))
 
-rm(cleaner_phenology_records, herb_wrapper, fixed_input)
+rm(cleaner_phenology_records, herb_wrapper, fixed_input, upper_snow_bound, lower_snow_bound)
 ```
 
 ```{r Generate daily list of possible species in pollen loads}
+
+weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates.csv'))
 
 flowering_est_long <- bind_rows(weibull_estimates, fixed_estimates) %>% 
   group_by(taxon) %>% 
