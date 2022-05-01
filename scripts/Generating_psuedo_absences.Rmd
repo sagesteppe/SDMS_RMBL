@@ -30,8 +30,8 @@ set.seed(12)
 
 
 ```{r}
-spp_occurrences_reg_random <- st_read(here("data/processed/spp_occurences_regression.shp"), quiet = T)
-spp_occurrences <- st_read(here("data/processed/spp_occurences.shp"), quiet = T)
+spp_occurrences_reg_random <- st_read(here("data/processed/spp_occurences_PREDICTED_regression.shp"), quiet = T)
+spp_occurrences <- st_read(here("data/processed/spp_occurences_PREDICTED_.shp"), quiet = T)
 ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'), quiet = T)
 BLM_CP <- st_read(here("data/raw/blm_ownership/BLM_ownership_in_study_area.shp"), quiet = T)
 BLM_AIM <- st_read(here("data/raw/AIM_plants_Colorado_Basin.shp"), quiet = T) %>% 
@@ -143,7 +143,7 @@ test <- lapply(PA_REG_DF, random_PA_spatial) # about 30 minutes
 Sys.time()
 test1 <- data.table::rbindlist(test) %>%  st_as_sf()
 
-st_write(test1, here("data/processed/Pseudo_asbences_regression_geographically_generated.shp"), append = F)
+st_write(test1, here("data/processed/Pseudo_asbences_regression_geographically_generated_PREDICTED.shp"), append = F)
 ```
 
 ```{r, echo = F, warning = F, message = F}
@@ -152,20 +152,20 @@ rm(test, test1)
 
 Now to extract the climate variables for each record from the Pseudo-Absences
 ```{r, Extract values for climate variables, echo = F, eval = F}
-PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression_geographically_generated.shp") )
+PA_REG_DF <- read_sf(here("data/processed/Pseudo_asbences_regression_geographically_generated_PREDICTED.shp") )
 PA_REG_DF <- PA_REG_DF %>% filter(!st_is_empty(.))
 PA_REG_DF1 <- raster::extract(WPDPV2, PA_REG_DF) # start 12:49. 
 
 PA_REG_DF <- cbind(PA_REG_DF, PA_REG_DF1)
 PA_REG_DF1 <- PA_REG_DF %>% drop_na(PCL_SE1) 
 
-st_write(PA_REG_DF1,  here("data/processed/Pseudo_absences_regression.shp"), append = F, quiet = T)
+st_write(PA_REG_DF1,  here("data/processed/Pseudo_absences_regression_PREDICTED.shp"), append = F, quiet = T)
 rm(PA_REG_DF1)
 ```
 
 We have these data saved so we do not need to rerun these extractions. 
 ```{r, Bring in Regression Pseudo-Absences, eval = F}
-PA_REG_DF <- st_read(here("data/processed/Pseudo_absences_regression.shp"), quiet = T) # 461647
+PA_REG_DF <- st_read(here("data/processed/Pseudo_absences_regression_PREDICTED.shp"), quiet = T) # 461647
 PA_REG_DF <- PA_REG_DF %>% drop_na(PCL_SE1) 
 
 PA_REG_DF_LIST <- split(PA_REG_DF, ~ binomial)
@@ -206,12 +206,12 @@ test <- lapply(PA_ML_DF, random_PAML_spatial) # 11 minutes
 Sys.time()
 test1 <- data.table::rbindlist(test) %>% st_as_sf()
 
-st_write(test1, here("data/processed/Pseudo_absences_ML_geographically_generated.shp"), append = F, quiet = T)
+st_write(test1, here("data/processed/Pseudo_absences_ML_geographically_generated_PREDICTED.shp"), append = F, quiet = T)
 ```
 
 Now to extract the climate variables for each record from the Pseudo-Absences
 ```{r, Extract values for climate variables, echo = F, eval = F}
-PA_ML_DF <- read_sf(here("data/processed/Pseudo_absences_ML_geographically_generated.shp") )
+PA_ML_DF <- read_sf(here("data/processed/Pseudo_absences_ML_geographically_generated_PREDICTED.shp") )
 PA_ML_DF <- PA_ML_DF %>% 
   filter(!st_is_empty(.)) %>% 
   st_transform(st_crs(WPDPV1))
@@ -220,7 +220,7 @@ PA_ML_DF1 <- raster::extract(WPDPV1, PA_ML_DF) # start 11:13
 PA_ML_DF <- cbind(PA_ML_DF, PA_ML_DF1)
 PA_ML_DF1 <- PA_ML_DF %>% drop_na(PCL_SE1) 
 
-st_write(PA_ML_DF1,  here("data/processed/Pseudo_absences_ML.shp"), append = F, quiet = T)
+st_write(PA_ML_DF1,  here("data/processed/Pseudo_absences_ML_PREDICTED.shp"), append = F, quiet = T)
 rm(PA_ML_DF1)
 ```
 
@@ -229,7 +229,7 @@ rm(WPDPV1, WPDPV2, BLM_AIM, BLM_CP, blm_cp_s, ecoregion_bound, test, test1, spp_
 ```
 
 ```{r}
-PA_ML_DF <- st_read(here("data/processed/Pseudo_absences_ML.shp"), quiet = T)
+PA_ML_DF <- st_read(here("data/processed/Pseudo_absences_ML_PREDICTED.shp"), quiet = T)
 PA_ML_DF_LIST <- split(PA_ML_DF, ~binomial)
 
 Sys.time()
@@ -259,7 +259,7 @@ remaining_records <- remaining_records %>%
   filter(occurrence == 1 | occurrence == 0 & !is.na(PlotKey)) %>% 
   bind_rows(., ab)
 
-st_write(remaining_records,  here("data/processed/Pseudo_absences_ML.shp"), append = F, quiet = T)
+st_write(remaining_records,  here("data/processed/Pseudo_absences_ML_PREDICTED.shp"), append = F, quiet = T)
 ```
 
 ```{r}

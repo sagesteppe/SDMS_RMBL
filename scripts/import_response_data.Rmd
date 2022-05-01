@@ -19,7 +19,7 @@ library(here)
 
 source(here::here('scripts/sdm_functions.R'))
 
-ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'))
+ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'), quiet = T)
 
 ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp"), quiet = T) %>% 
   dplyr::select(NA_L3CODE, NA_L3NAME) %>% 
@@ -35,34 +35,20 @@ We will need to bring in our Species Data. These data were found by querying the
 We will then query these species to the BIEN database, as the state lists seem to be subset, we will download those and then clip the records to our bounding area. Remember we already standardized the names to/from this database. This will take some work if you want to do this. Check my github, this happens in more than most scripts. 
 
 ```{r Import RMBL biotically pollinated plants list AND list generated form herbarium queries}
-species <- read.csv(here("data/processed/rmbl_wfo_synonyms.csv")) %>% 
-  mutate('PrtyFlrs' = case_when(
-    Group != 'angiosperms' ~ 0,
-    Group == 'angiosperms' & Order == 'Poales' ~ 0,
-    TRUE ~ 1
-  )) %>% 
-  filter(PrtyFlrs == 1) %>% 
-  dplyr::select(scientificName, 'scrubbed_species_binomial' = Species) 
-
+species <- read.csv(here("data/raw/biotic_pollinated_species.csv")) %>% 
+  dplyr::select(scrubbed_species_binomial) 
 predicted <- read.csv(here("data/processed/spp2model.csv"))
-  
-todo <- anti_join(predicted, species, by = "scientificName")
-also_todo <- anti_join(species, predicted, by = "scientificName")
 
-done <- inner_join(predicted, species, by = "scientificName") %>% 
-  distinct(scientificName, .keep_all = T) %>% 
-  dplyr::select('scrubbed_species_binomial' = scrubbed_species_binomial.x, scientificName)
+todo <- anti_join(predicted, species, by = "scrubbed_species_binomial")
 
-species_full <- bind_rows(todo, also_todo, done) %>% 
-  pull(scrubbed_species_binomial)
-
-rm(species, predicted, todo, also_todo, done)
+rm(species, predicted)
 ```
 
-Note that many parts of this pipeline were re-run. Namely, a first subset of vascular plant species from RMBL (ca. 370) were included as a beta test. THen additional species found via the database distance search were run through to validate distance based richness gleaning.
+Note that many parts of this pipeline were re-run. Namely, a first subset of vascular plant species from RMBL (ca. 370) were included as a beta test. Then additional species found via the database distance search were run through to validate distance based richness gleaning.
 
 ```{r Query BIEN for occurrence records, eval = F}
-species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2]
+# species <- read.csv(here("data/raw/biotic_pollinated_species.csv"))[,2] # beta
+species <- todo %>% pull(scrubbed_species_binomial) # Log reg predicted species
 ecoregion_bound <- st_as_sf(ecoregion_bound)
 ecoregion_bound <- st_transform(ecoregion_bound, 4326)
 eco_bound_bbox <- st_bbox(ecoregion_bound)
@@ -82,38 +68,17 @@ spp_occurrences1 <- spp_occurrences %>%
   st_as_sf(coords = c(x= "longitude", y = "latitude"), crs = 4326) %>% 
   st_transform(4269)
 
-ecoregion_bound <- st_transform(ecoregion_bound, 4269) # files come in a box, reduce to ecoregion
+ecoregion_bound <- st_transform(ecoregion_bound, 4269) # files come in a box, reduce extent to eco-region
 spp_occurrences1 <- st_intersection(ecoregion_bound, spp_occurrences1)
 
-fname <- paste0('BIEN_occurrence_records_', Sys.Date(), '.shp')
+fname <- paste0('BIEN_occ_rec_PREDICTED', Sys.Date(), '.shp')
 st_write(spp_occurrences1, here("data/raw", fname), append = F)
-rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname)
-
-# full batch here needs to be performed 
-
-spp_occurrences_full <- BIEN::BIEN_occurrence_box(
-    min.lat = eco_bound_bbox[2], max.lat = eco_bound_bbox[4],
-    min.long = eco_bound_bbox[1],  max.long = eco_bound_bbox[3],
-    species = species_full,
-    cultivated = F, natives.only = F
-)
-
-spp_occurrences_full1 <- spp_occurrences_full %>% 
-  st_as_sf(coords = c(x= "longitude", y = "latitude"), crs = 4326) %>% 
-  st_transform(4269) %>% 
-  filter(!datasource %in% c('FIA', 'VegBank'))
-
-ecoregion_bound <- st_transform(ecoregion_bound, 4269)
-spp_occurrences_full1 <- st_intersection(ecoregion_bound, spp_occurrences_full1)
-fname <- paste0('BIEN_occurrence_records_full', Sys.Date(), '.shp')
-
-st_write(spp_occurrences_full1, here("data/raw", fname), append = F)
-rm(spp_occurrences_full1, spp_occurrences_full, eco_bound_bbox, fname)
+rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname, todo)
 ```
 
 To avoid re-running the code above, we will read these results from a local source. We will remove duplicate records within each taxon. 
 ```{r Read in BIEN occurrences, echo = F}
-spp_occurrences <- st_read(here('data/raw/BIEN_occurrence_records_2022-03-03.shp'), quiet = T) %>% 
+spp_occurrences <- st_read(here('data/raw/BIEN_occ_rec_PREDICTED2022-05-01.shp'), quiet = T) %>% 
   rename(binomial = scrbb__) %>%
   group_by(binomial) %>% # about 1/2 of the records are un-scrubbed dupes! yikes. 
   distinct(geometry)
@@ -255,8 +220,7 @@ Let's try and boost our BIEN presence records with BLM plot numbers, I am sure w
 species <- spp_occurrences %>% pull(binomial) %>% unique()
 
 AIM_presence <- BLM_AIM %>% 
-  filter(binomial %in% species) %>%  # 15k records - largely sagebrush a few other items. 
-  dplyr::select(-data)
+  filter(binomial %in% species)
 
 spp_occurrences <- spp_occurrences %>% 
   mutate(PlotKey = NA) %>% 
@@ -289,22 +253,24 @@ We will also do slight spatial filtering here. As each cell is 90 x 90m, we will
 spp_occurrences <- spp_occurrences %>% 
   st_as_sf() %>% 
   st_transform(32613)
+full <- st_is_empty(spp_occurrences)
+spp_occurrences <- spp_occurrences[which(full == F),]
 spp_occurrences_list <- split(spp_occurrences, f = spp_occurrences$binomial)
 
 spp_occurrences <- lapply(spp_occurrences_list, pseudo_rep_funct)
 spp_occurrences <- data.table::rbindlist(spp_occurrences) # remove arouns 4k records.
 
-rm(spp_occurrences_list, pseudo_rep_funct)
+rm(spp_occurrences_list, pseudo_rep_funct, full, ecoregions, predicted)
 ```
 
 We can now write out these species occurrence records for more trimming and analyses
 
 ```{r}
-st_write(spp_occurrences, here("data/processed/spp_occurences_no_duplicates.shp"), append = F)
+st_write(spp_occurrences, here("data/processed/spp_occurences_PREDICTED_no_duplicates.shp"), append = F)
 ```
 
 ```{r}
-rm(BLM_AIM, BLM_CP, ecoregion_bound, extra, spp_occurrences)
+rm(BLM_AIM, BLM_CP, ecoregion_bound, extra, spp_occurrences, ecoregions)
 rm(list = lsf.str())
 ```
 

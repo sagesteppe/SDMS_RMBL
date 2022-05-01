@@ -53,7 +53,7 @@ rm(WPDPV, target, target_ml, names_vec)
 ```
 
 ```{r Read in Species Occurrence Data, echo = F, eval = F}
-PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression.shp"))
+PA_REG_DF <- read_sf(here("data/processed/Pseudo_absences_regression_PREDICTED.shp"))
 PA_REG_DF %>% pull(binomial) %>% unique()
 ```
 
@@ -82,7 +82,7 @@ rm(WPDPV1)
 Both Random Forests (RF) and Boosted Regression Trees (BRT) are simple forms of machine learning which have been shown to perform well using the the same proportion of presence to absence records (CITE). As RF's achieve re-sampling via bootstrap aggregation ('bagging') and BRT's ('boosting') 
 
 ```{r Read in Species Occurrence Data, echo = F}
-PA_ML_DF <- read_sf(here("data/processed/Pseudo_absences_ML.shp"))
+PA_ML_DF <- read_sf(here("data/processed/Pseudo_absences_ML_PREDICTED.shp"))
 PA_ML_DF %>% pull(binomial) %>% unique()
 ```
 
@@ -92,7 +92,7 @@ PA_ML_DF1 <- split(PA_ML_DF, ~ binomial)
 rm(PA_ML_DF)
 
 Sys.time() 
-lapply(PA_ML_DF1[314:373], Machine_SDM) # skipped #3 & # 112
+lapply(PA_ML_DF1, Machine_SDM) # skipped #3 & # 112
 Sys.time()
 
 ```

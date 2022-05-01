@@ -38,7 +38,7 @@ set.seed(12)
 
 
 ecoregion_bound <- readOGR(here('data/processed/SoRo_ecoregion_bound.shp')) %>% st_as_sf()
-spp_occurrences <- st_read( here("data/processed/spp_occurences_no_duplicates.shp"), quiet = T) %>% st_transform(32613)
+spp_occurrences <- st_read( here("data/processed/spp_occurences_PREDICTED_no_duplicates.shp"), quiet = T) %>% st_transform(32613)
 ```
 
 # Table of Contents
@@ -332,8 +332,8 @@ rm(list = lsf.str())
 ```
 
 ```{r}
-st_write(spp_occurrences_reg_random, here("data/processed/spp_occurences_regression.shp"), append = F)
-st_write(spp_occurrences, here("data/processed/spp_occurences.shp"), append = F)
+st_write(spp_occurrences_reg_random, here("data/processed/spp_occurences_PREDICTED_regression.shp"), append = F)
+st_write(spp_occurrences, here("data/processed/spp_occurences_PREDICTED_.shp"), append = F)
 ```
 
 ```{r}
