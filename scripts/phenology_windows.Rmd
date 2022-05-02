@@ -21,6 +21,7 @@ source(here::here('scripts/phen_functions.R'))
 
 ```{r}
 spp_occurrences_full1 <- st_read(here("data/raw/BIEN_occurrence_records_full2022-04-22.shp"), quiet = T)
+spp_occurrences_phen <- st_read(here("data/raw/BIEN_occ_rec_PHEN2022-05-01.shp"), quiet = T)
 ```
 
 
@@ -55,23 +56,29 @@ rm(poly_coords, poly100, poly100_bb)
 adj_L4 <- st_intersection(rmbl, ecoregions) %>% 
   distinct(US_L4NAME, .keep_all = T) %>% 
   pull(US_L4CODE)
-ecoregions <- ecoregions %>% 
+ecoregions_subalp <- ecoregions %>% 
   filter(US_L4CODE %in% adj_L4) %>% 
   dplyr::select(US_L4CODE, US_L4NAME)
 
-spp_occurrences_full1 <- st_transform(spp_occurrences_full1, st_crs(ecoregions))
-spp_target_ecoregions <- st_intersection(spp_occurrences_full1, ecoregions) %>% 
-  st_drop_geometry() %>% 
+spp_occurrences_full1 <- st_transform(spp_occurrences_full1, st_crs(ecoregions_subalp))
+spp_target_ecoregions <- st_intersection(spp_occurrences_full1, ecoregions_subalp) %>% 
   rename('Species' = scrbb__,
          'Date' = dt_cllc) %>% 
   drop_na(Date)
 
 ggplot() +
-  geom_sf(data = ecoregions, aes(fill = US_L4NAME)) +
+  geom_sf(data = ecoregions_subalp, aes(fill = US_L4NAME)) +
   geom_sf(data = rmbl, fill = NA, color = 'black', lwd = 1, lty = 5) 
 
-rm(poly100_t_dist, ecoregions, poly100_bb, adj_L4)
+spp_occurrences_phen <- st_transform(spp_occurrences_phen, st_crs(ecoregions_subalp))
+spp_target_ecoregions_phen <- st_intersection(spp_occurrences_phen, ecoregions_subalp) %>% 
+  rename('Species' = scrbb__,
+         'Date' = dt_cllc) %>% 
+  drop_na(Date)
+
+rm(poly100_t_dist, ecoregions_subalp, poly100_bb, adj_L4)
 ```
+
 
 ```{r calculate common snow free dates, warning = F}
 
@@ -94,43 +101,110 @@ upper_snow_bound <- uppr_snw_bnd(snow_files, gothic)
 rm(x_year_snow,i, snow_files, rmbl, snow_crs, gothic, lwr_snw_bnd, uppr_snw_bnd)
 ```
 
-We here calculate weibull based estimates of the date of flowreing onset, cessation, and the dates when 10% of individuals are flowering, peak flowering (50% of individuals), and when 9-% of individuals have flowered. 
-```{r calculate weibull phenology estimates, echo = F, warning = F, eval = F}
+We here calculate weibull based estimates of the date of flowering onset, cessation, and the dates when 10% of individuals are flowering, peak flowering (50% of individuals), and when 9-% of individuals have flowered. 
 
-cleaner_phenology_records <- spp_target_ecoregions %>% 
+```{r calculate weibull phenology estimates 1}
+
+spp_phen_recs <- bind_rows(spp_target_ecoregions_phen, spp_target_ecoregions)
+
+cleaner_phenology_records <- spp_phen_recs %>% 
   dplyr::select(Species, Date) %>%
   group_by(Species) %>% 
-  filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% # these are things without dates put in january
+  filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% # these are things without dates put in January
   mutate(DOY = lubridate::yday(as.Date(Date, format = "%Y-%m-%d")) + 1) %>%  # create doy column
-  filter(DOY >= lower_snow_bound$third_quart[1], DOY <= upper_snow_bound$first_quart[1]) %>% # only records after snow melt and before October are kept
+  filter(DOY >= lower_snow_bound$third_quart[1], 
+         DOY <= upper_snow_bound$first_quart[1]) %>%
+  # only records after snow melt and before October are kept
   arrange(DOY) %>% 
   slice_head(prop = 0.9) %>% # remove some of the fruiting collections at the seasons end
-  mutate(Observations  = n()) 
+  mutate(Observations  = n())
 
 weibull_input <- cleaner_phenology_records %>% 
   filter(Observations >= 10) %>% # weibull requires 10 records to calculate.
   split(., .$Species)
-
-weibull_estimates <- bind_rows(lapply(weibull_input, weibull_wrapper)) # about 3 hours for 300 spp
-write.csv(weibull_estimates, paste0(here(),'/data/processed/weibull_estimates.csv'),row.names = F)
-
-rm(as, observations, today, weibull_input, weibull_wrapper, spp_target_ecoregions)
 ```
+
+```{r calculate weibull phenology estimates 2, echo = F, warning = F, eval = F}
+weibull_estimates <- bind_rows(lapply(weibull_input, weibull_wrapper)) # about 3 hours for 300 spp
+write.csv(weibull_estimates, paste0(here(),'/data/processed/weibull_estimates_phen.csv'),row.names = F)
+```
+
+```{r, message = F, warning=F}
+rm(as, observations, today, weibull_input, weibull_wrapper, spp_target_ecoregions, spp_target_ecoregions_phen, spp_phen_recs)
+```
+
+We were able to estimate the above taxa using 10 or more records from purely sub-alpine settings. Here we glean more records from Montane forested settings. While this is not certainly not ideal as we are attempting to estimate the dates from which a tenth of individuals until 90% of individuals have flowered in the sub alpine valley of RMBL. We have no more records to use. 
+
+```{r Additional mid-elevation forest records 1}
+
+under_weibull_rec <- cleaner_phenology_records %>% 
+  filter(Observations <= 9, Observations > 1) %>% 
+  distinct(Species) %>% 
+  pull(Species)
+
+add_mnt_recs <- spp_occurrences_full1 %>% 
+  filter(scrbb__ %in% under_weibull_rec)
+
+ecoregions_mid_for <- ecoregions %>% 
+  filter(US_L4NAME == 'Sedimentary Mid-Elevation Forests') %>% 
+  dplyr::select(US_L4CODE, US_L4NAME)
+
+add_mnt_recs <- st_transform(add_mnt_recs, st_crs(ecoregions_mid_for))
+spp_target_montane <- st_intersection(add_mnt_recs, ecoregions_mid_for) %>% 
+  rename('Species' = scrbb__,
+       'Date' = dt_cllc) %>% 
+  st_drop_geometry() %>% 
+  drop_na(Date)
+
+under_weibull_rec <- cleaner_phenology_records %>% 
+  filter(Observations <= 9, Observations > 1) %>% 
+  bind_rows(., spp_target_montane) %>% 
+  dplyr::select(Species, Date) %>%
+  group_by(Species) %>% 
+  filter(!str_detect(Date,'\\d{4}-01-\\d{2}')) %>% # these are things without dates put in January
+  mutate(DOY = lubridate::yday(as.Date(Date, format = "%Y-%m-%d")) + 1) %>%  # create doy column
+  filter(DOY >= lower_snow_bound$third_quart[1], 
+         DOY <= upper_snow_bound$first_quart[1]) %>% 
+  arrange(DOY) %>% 
+  mutate(Observations  = n()) %>% 
+  st_drop_geometry()
+
+weibull_input <- under_weibull_rec %>% 
+  filter(Observations >= 10) %>% # weibull requires 10 records to calculate.
+  split(., .$Species)
+```
+
+```{r Additional mid-elevation forest records 2, eval = F}
+weibull_estimates <- bind_rows(lapply(weibull_input, weibull_wrapper)) 
+write.csv(weibull_estimates, 
+          paste0(here(),'/data/processed/weibull_estimates_mixed_montane.csv'),
+          row.names = F)
+```
+
+```{r Additional mid-elevation forest records 3}
+rm(add_mnt_recs, ecoregions_mid_for, weibull_input, ecoregions, ecoregions_mid_for,
+   spp_target_montane, cleaner_phenology_records, spp_occurrences_full1)
+```
+
 
 ```{r Species without enough records for weibull estimation, warning = F}
 
-fixed_input <- cleaner_phenology_records %>% 
+fixed_input <- under_weibull_rec %>% 
   filter(Observations <= 9, Observations > 1) %>% # take everything not suitable for weibull
   split(., .$Species)
 
-fixed_estimates <- bind_rows(lapply(fixed_input, herb_wrapper))
+fixed_estimates <- bind_rows(lapply(fixed_input, herb_wrapper)) %>% 
+  mutate('Estimate' = 'Fixed-Montane')
 
 rm(cleaner_phenology_records, herb_wrapper, fixed_input, upper_snow_bound, lower_snow_bound)
 ```
 
 ```{r Generate daily list of possible species in pollen loads}
 
-weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates.csv'))
+weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_phen.csv')) %>% 
+  mutate('Estimate' = 'Weibull-Subalpine')
+weibull_estimates1 <- read.csv(paste0(here(),'/data/processed/weibull_estimates_mixed_montane.csv')) %>% 
+  mutate('Estimate' = 'Weibull-Montane')
 
 flowering_est_long <- bind_rows(weibull_estimates, fixed_estimates) %>% 
   group_by(taxon) %>% 
@@ -138,8 +212,7 @@ flowering_est_long <- bind_rows(weibull_estimates, fixed_estimates) %>%
 
 flowering_est_long <- bind_rows(lapply(flowering_est_long, daily_flowers)) %>% 
   arrange(DOY) %>% 
-  group_by(DOY)  %>% 
-  mutate('Estimate' = if_else(Taxon %in% weibull_estimates$taxon, 'Weibull', 'Fixed'))
+  group_by(DOY) 
 
 flowering_est_long %>% 
   filter(DOY <= 244) %>% 
@@ -147,7 +220,7 @@ flowering_est_long %>%
   ggplot(aes(x = DOY, y = count)) +
   geom_point()
 
-rm(weibull_estimates, fixed_estimates, lwr_snw_bnd, upr_snw_bnd)
+rm(weibull_estimates, fixed_estimates, lwr_snw_bnd, upr_snw_bnd, daily_flowers, spp_occurrences_phen, under_weibull_rec, weibull_estimates1)
 ```
 
 

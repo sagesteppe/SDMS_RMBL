@@ -13,20 +13,28 @@ library(lubridate)
 source(here::here('scripts/phen_functions.R'))
 ```
 
-We can only test the accuracy of the Weibull method on a subset of cerca 60 species we have created estimates for. An interesting component of the Weibull development paper is that the authors did not actually attempt to estimate phenological events using herbarium records and then test them using the RMBL dataset, but rather used the same testing and training dataset? (wtf this cannot be right must check paper).
+We can only test the accuracy of the Weibull method on a subset of cerca 60 species we have created estimates for. An interesting component of the Weibull development paper is that the authors did not actually attempt to estimate phenological events using herbarium records and then test them using the RMBL data set, but rather used the same testing and training data set? (wtf this cannot be right must check paper).
 
-While the National Phenology Network, and NEON both collect datasets on the timing of life history events, both seem to focus on taxa in dominant physiognomic classes such as trees. These data unfortunately do not contain information we find useful.
+While the National Phenology Network, and NEON both collect data sets on the timing of life history events, both seem to focus on taxa in dominant physiognomic classes such as trees. These data unfortunately do not contain information that I find useful.
+
 ```{r}
-weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates.csv')) %>% 
+weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_phen.csv')) %>% 
     mutate(taxon = case_when(
     taxon == 'Adenolinum lewisii' ~ 'Linum lewisii',
     taxon == 'Ligularia bigelovii' ~ 'Senecio bigelovii',
     taxon == 'Zigadenus elegans' ~ 'Anticlea elegans',
     TRUE ~ taxon
-  ))
+  )) %>% 
+  mutate('Estimate' = 'Weibull-Subalpine')
+
+weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_mixed_montane.csv')) %>% 
+  mutate('Estimate' = 'Weibull-Montane') %>% 
+  bind_rows(., weibull_estimates)
 
 groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDonna2014.csv')) %>% 
   dplyr::select(1:2,7:10) %>% 
+  filter(species != 'Eriogonum subalpinum') %>%  # this var. majus of the E. umbellatum complex - E. umbellatum already
+  # present this cannot be kept as indepedent whence relegated to synonymy under the BIEN schema
   mutate(species = case_when(
     species == 'Amerosedum lanceolatum' ~ 'Sedum lanceolatum',
     species == 'Ligularia bigelovii' ~ 'Senecio bigelovii', 
@@ -35,6 +43,8 @@ groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDo
     species == 'Amelanchier pumila' ~ 'Amelanchier alnifolia',
     species == 'Ligusticum porterii' ~ 'Ligusticum porteri', 
     species == 'Noccaea montana' ~ 'Noccaea fendleri',
+    species == 'Descurainia richardsonii' ~ 'Descurainia incana',
+    species == 'Lupinus sericeaus' ~ 'Lupinus sericeus',
     species == 'Sedum rosea' ~ 'Rhodiola integrifolia', # this challenging unable to find how
     # this name was missaplied  to this material
     species == 'Taraxacum officionale' ~ 'Taraxacum officinale',
@@ -44,15 +54,118 @@ groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDo
   mutate(Duration7412 = round(Duration7412,0))
 ```
 
-While these data refer to the means of all values over the time period of analyses, these means should still fall within the confidence intervals of the weibull estimates. 
+Prepare the observed flowering events onto the estimated flowering events. 
 ```{r}
 weibull_estimates_test <- weibull_estimates %>% 
-  filter(taxon %in% groundTruth$species) 
+  filter(taxon %in% groundTruth$species,
+         event == 'estimate',
+         metric %in% c('tenth','fifty','ninety'))  %>% 
+  dplyr::select(!contains('hrb'), -event) %>% 
+  group_by(taxon) %>% 
+  mutate(est_duration = max(DOY) - min(DOY)) %>% 
+  mutate(Type = 'Estimate') %>% 
+  mutate(metric = case_when(
+    metric == 'tenth' ~ 'First',
+    metric == 'fifty' ~ 'Peak',
+    metric == 'ninety' ~ 'Last',
+  )) 
 
-anti_join(groundTruth, weibull_estimates, by = c('species' = 'taxon')) %>% 
+weibull_estimates_test <- split(weibull_estimates_test, weibull_estimates_test$taxon)
+goLong <- function(x){
+  res <- bind_rows(x[1:nrow(x),], x[nrow(x),])
+  res[nrow(res),1] <- 'Duration' 
+  res[nrow(res),2] <- res$est_duration[1]
+  res <- res[,c(1:4,6:7)]
+  return(res)
+}
+weibull_estimates_test <- bind_rows(lapply(weibull_estimates_test, goLong))
+
+groundTruth <- groundTruth %>% 
+  rename_with(~ str_remove(., "_7412|7412")) %>% 
+  pivot_longer(!family:species, names_to = 'metric', values_to = 'DOY') %>% 
+  mutate(Type = 'Observed', sample_size = 0)
+
+spp_needed <- anti_join(groundTruth, weibull_estimates, by = c('species' = 'taxon')) %>% 
   distinct(species)
 ```
 
+```{r Download the missing species and process for comparison, eval = F}
+# this code was run iteratively to ensure that I could compare phenology estimates for as many of the ground truthed taxa as possible. These species are more of less quarantined from the spatial species. 
+
+library(sf)
+
+ecoregion_bound <- st_read(here('data/processed/SoRo_ecoregion_bound.shp'), quiet = T)
+
+ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp"), quiet = T) %>% 
+  dplyr::select(NA_L3CODE, NA_L3NAME) %>% 
+  filter(NA_L3NAME == 'Southern Rockies') %>% 
+  st_union() %>% 
+  st_transform(5070)
+
+spp_needed[9,1] <- 'Lupinus sericeus'
+species <- spp_needed %>% pull(species) # Log reg predicted species
+ecoregion_bound <- st_as_sf(ecoregion_bound)
+ecoregion_bound <- st_transform(ecoregion_bound, 4326)
+eco_bound_bbox <- st_bbox(ecoregion_bound)
+
+spp_occurrences <- BIEN::BIEN_occurrence_box(
+    min.lat = eco_bound_bbox[2],
+    max.lat = eco_bound_bbox[4],
+    min.long = eco_bound_bbox[1],
+    max.long = eco_bound_bbox[3],
+    species = species,
+    cultivated = F,
+    natives.only = F
+)
+
+spp_occurrences1 <- spp_occurrences %>% 
+  filter(datasource != c('VegBank', 'FIA')) %>% 
+  dplyr::select(scrubbed_species_binomial, latitude, longitude, date_collected) %>% 
+  st_as_sf(coords = c(x= "longitude", y = "latitude"), crs = 4326) %>% 
+  st_transform(4269)
+
+ecoregion_bound <- st_transform(ecoregion_bound, 4269) # files come in a box, reduce extent to eco-region
+spp_occurrences1 <- st_intersection(ecoregion_bound, spp_occurrences1)
+
+fname <- paste0('BIEN_occ_rec_PHEN', Sys.Date(), '.shp')
+st_write(spp_occurrences1, here("data/raw", fname), append = F)
+rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname)
+```
+
+
+# NEED TO FIX THIS - THE SPECIES DO NOT CURRENTLY LINE UP !!!!!!!!!!!!!!!!!!!!!!!
+
+```{r Regress data}
+frst_obs <- groundTruth %>% 
+  filter(metric == 'First')
+frst_exp <- weibull_estimates_test %>% 
+  filter(metric == 'First')
+
+peak_obs <- groundTruth %>% 
+  filter(metric == 'Peak')
+peak_exp <- weibull_estimates_test %>% 
+  filter(metric == 'Peak')
+
+end_obs <- groundTruth %>% 
+  filter(metric == 'Last')
+end_exp <- weibull_estimates_test %>% 
+  filter(metric == 'Last')
+
+dur_obs <- groundTruth %>% 
+  filter(metric == 'Duration')
+dur_exp <- weibull_estimates_test %>% 
+  filter(metric == 'Duration')
+
+plot(x = frst_obs$DOY, y = frst_exp$DOY)
+plot(x = peak_obs$DOY, y = peak_exp$DOY)
+plot(x = end_obs$DOY, y = end_exp$DOY)
+plot(x = dur_obs$DOY, y = dur_exp$DOY)
+
+summary(lm(frst_exp$DOY ~ frst_obs$DOY))
+summary(lm(peak_exp$DOY ~ peak_obs$DOY))
+
+rm(frst_obs, frst_exp, peak_obs, peak_exp, end_obs, end_exp, dur_obs, dur_exp)
+```
 
 
 

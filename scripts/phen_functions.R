@@ -173,9 +173,6 @@ daily_flowers <- function(x){
   # each day of a season, from the earliest flowering taxon to the last 
   # flowering taxon within the list
   
-  x <- x %>% 
-    filter(metric %in% c('tenth', 'ninety', 'onset_est', 'end_est'))
-  
   results <- data.frame(
     seq(from = min(x$DOY, na.rm = T), to = max(x$DOY, na.rm = T), by = 1),
     x$taxon[1]
