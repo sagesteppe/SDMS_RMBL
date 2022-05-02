@@ -10,6 +10,7 @@ output: html_document
 library(tidyverse) # data tidying
 library(here)
 library(lubridate)
+library(plotrix)
 source(here::here('scripts/phen_functions.R'))
 ```
 
@@ -216,51 +217,59 @@ rm(regression_data, weibull_estimates, ci)
 ```{r Plot Correlation, warning = F}
 
 png(file = paste0(here(), '/results/plots/phenology_estimates_10_90.png'), 
-    width = 4, height = 4, pointsize = 12)
+    width = 6, height = 6, pointsize = 4, units = 'cm', res = 300)
 
-par(pty="s", mfrow = c(2,2), mar = c(3,1,2,1))
+par(pty="s",mgp=c(2,1,0),  mfrow = c(2,2), mar = c(3,3,1,1))
 
 plotCI(x = rd_start$DOY_obs,  rd_start$DOY_est,
        li = rd_start$DOY_low, ui = rd_start$DOY_high, 
-       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
-       xlim = c(140,220), ylim = c(140,220),
+       pch=20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
+       xlim = c(140,220), ylim = c(140,220), axes = F,
        main = "First Flower Date",
        xlab = "", ylab = "Estimated (DOY)")
+axis(1)
+axis(2)
 text(155, 215, paste0("tau = ", round(start_kt[["estimate"]][["tau"]], 3)))
-text(155, 208, "p < 0.001")
-abline(start_lm)
+text(155, 209, "p < 0.001")
+abline(start_lm, lty = 2)
 
 plotCI(x = rd_peak$DOY_obs,  rd_peak$DOY_est,
        li = rd_peak$DOY_low, ui = rd_peak$DOY_high,
-       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
-       xlim = c(140,240), ylim = c(140,240),
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
+       xlim = c(160,240), ylim = c(160,240), axes = F,
        main = "Peak Flower Date",
        xlab = "", ylab = "Estimated (DOY)")
+axis(1)
+axis(2)
 #text(175, 235, paste0('RMSE = ', round(peak_lm_rmse, 3)))
-text(155, 235, paste0("tau = ", round(peak_kt[["estimate"]][["tau"]], 3)))
-text(155, 225, "p < 0.001")
+text(175, 235, paste0("tau = ", round(peak_kt[["estimate"]][["tau"]], 3)))
+text(175, 229, "p < 0.001")
 abline(peak_lm)
 
 plotCI(x = rd_last$DOY_obs,  rd_last$DOY_est,
        li = rd_last$DOY_low, ui = rd_last$DOY_high,
-       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
-       xlim = c(160,250), ylim = c(160,250),
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
+       xlim = c(160,250), ylim = c(160,250), axes = F,
        main = "Last Flower Date",
        xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
+axis(1)
+axis(2)
 #text(175, 245, paste0('RMSE = ', round(last_lm_rmse, 3)))
-text(175, 245, paste0("tau = ", round(end_kt[["estimate"]][["tau"]], 3)))
-text(175, 235, "p < 0.001")
+text(235, 173, paste0("tau = ", round(end_kt[["estimate"]][["tau"]], 3)))
+text(235, 165, "p < 0.001")
 abline(last_lm)
 
 plotCI(x = rd_dur$DOY_obs,  rd_dur$DOY_est,
        li = rd_dur$DOY_low, ui = rd_dur$DOY_high,
-       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
-       xlim = c(10,80), ylim = c(10,80),
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
+       xlim = c(10,90), ylim = c(10,90), axes = F,
        main = "Duration",
        xlab = "Observed (Days)", ylab = "Estimated (Days)")
+axis(1)
+axis(2)
 #text(25, 75, paste0('RMSE = ', round(dur_lm_rmse, 3)))
-text(25, 65, paste0("tau = ", round(dur_kt[["estimate"]][["tau"]], 3)))
-text(25, 55, paste0("p.val = ", round(dur_kt[["p.value"]], 3)))
+text(75, 21, paste0("tau = ", round(dur_kt[["estimate"]][["tau"]], 3)))
+text(75, 15, paste0("p = ", round(dur_kt[["p.value"]], 3)))
 abline(duration_lm)
 
 dev.off()
