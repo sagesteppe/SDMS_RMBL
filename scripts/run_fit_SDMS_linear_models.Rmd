@@ -67,7 +67,7 @@ Allouche, O., Tsoar, A., Kadmon, K. "Assessing the accuracy of species distribut
 PA_REG_DF1 <- split(PA_REG_DF, ~ binomial)
 
 Sys.time()
-lapply(PA_REG_DF1[366:373], Linear_SDM) # skipped #3 & # 112
+lapply(PA_REG_DF1[1:30], Linear_SDM) # skipped #3 & # 112
 Sys.time()
 
 ```

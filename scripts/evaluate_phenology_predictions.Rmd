@@ -19,8 +19,8 @@ While the National Phenology Network, and NEON both collect data sets on the tim
 
 ```{r}
 weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_phen.csv')) %>% 
+  filter(taxon != 'Adenolinum lewisii') %>% 
     mutate(taxon = case_when(
-    taxon == 'Adenolinum lewisii' ~ 'Linum lewisii',
     taxon == 'Ligularia bigelovii' ~ 'Senecio bigelovii',
     taxon == 'Zigadenus elegans' ~ 'Anticlea elegans',
     TRUE ~ taxon
@@ -51,6 +51,7 @@ groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDo
     species == 'Pedicularis bracteoasa' ~ 'Pedicularis bracteosa', 
     TRUE ~ species
     )) %>% 
+  filter(species != 'Mertensia fusiformis') %>% 
   mutate(Duration7412 = round(Duration7412,0))
 ```
 
@@ -78,15 +79,18 @@ goLong <- function(x){
   res <- res[,c(1:4,6:7)]
   return(res)
 }
-weibull_estimates_test <- bind_rows(lapply(weibull_estimates_test, goLong))
+weibull_estimates_test <- bind_rows(lapply(weibull_estimates_test, goLong)) %>% 
+  rename_with(~paste0(.,"_est"), c(-taxon, -metric))
 
 groundTruth <- groundTruth %>% 
   rename_with(~ str_remove(., "_7412|7412")) %>% 
   pivot_longer(!family:species, names_to = 'metric', values_to = 'DOY') %>% 
-  mutate(Type = 'Observed', sample_size = 0)
+  mutate(Type = 'Observed', sample_size = 0) %>% 
+  rename_with(~paste0(.,"_obs"), c(-species, -metric))
 
 spp_needed <- anti_join(groundTruth, weibull_estimates, by = c('species' = 'taxon')) %>% 
   distinct(species)
+rm(spp_needed)
 ```
 
 ```{r Download the missing species and process for comparison, eval = F}
@@ -133,38 +137,138 @@ rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname)
 ```
 
 
-# NEED TO FIX THIS - THE SPECIES DO NOT CURRENTLY LINE UP !!!!!!!!!!!!!!!!!!!!!!!
+- R NOTE: Looks like we want to be able to produce a plot which ALSO contains the lower and upper confidence estimates. 
+```{r Prepare Confidence Intervals for plotting}
 
-```{r Regress data}
-frst_obs <- groundTruth %>% 
+we <- weibull_estimates %>% 
+  filter(taxon %in% groundTruth$species,
+         event %in% c('low_ci', 'high_ci'),
+         metric %in% c('tenth','fifty','ninety'))  %>% 
+  dplyr::select(!contains('hrb')) %>% 
+  group_by(taxon) %>% 
+  mutate(est_duration = max(DOY) - min(DOY)) %>% 
+  mutate(metric = case_when(
+    metric == 'tenth' ~ 'First',
+    metric == 'fifty' ~ 'Peak',
+    metric == 'ninety' ~ 'Last',
+  )) %>% 
+  dplyr::select(event:taxon) 
+
+low <- we %>% filter(event == 'low_ci') %>% 
+  rename('DOY_low' = DOY) %>% 
+  dplyr::select(-event)
+ci <- we %>% filter(event == 'high_ci') %>% 
+  rename('DOY_high' = DOY) %>% 
+  dplyr::select(-event) %>% 
+  left_join(., low, by = c('taxon', 'metric'))
+
+rm(low, we)
+rm(list = lsf.str())
+```
+
+# Run Analysis
+
+
+NOTE WOULD BE NICE TO HAVE A WAY TO QUANTIZE RESIDUALS ALA RMSE - BUT VARIABLES ARE NOT INDEPENDENT ; BOTH ARE PRODUCTS OF THE AXES OF THE SAME UNANALYZED INDEPDENENT VARIABLES. IT APPEARS THERE IS NO METHOD FOR DISPLAYING THE FIT OF CORRELATION TEST/RESULTS... HMMM
+
+```{r Correlation Testing, warning = F}
+
+regression_data <- left_join(groundTruth, weibull_estimates_test, 
+                             by = c('species' = 'taxon', 'metric')) %>% 
+  left_join(., ci, by = c('species' = 'taxon', 'metric'))
+
+rd_start <- regression_data %>% 
   filter(metric == 'First')
-frst_exp <- weibull_estimates_test %>% 
-  filter(metric == 'First')
-
-peak_obs <- groundTruth %>% 
+rd_peak <- regression_data %>% 
   filter(metric == 'Peak')
-peak_exp <- weibull_estimates_test %>% 
-  filter(metric == 'Peak')
-
-end_obs <- groundTruth %>% 
+rd_last <- regression_data %>% 
   filter(metric == 'Last')
-end_exp <- weibull_estimates_test %>% 
-  filter(metric == 'Last')
-
-dur_obs <- groundTruth %>% 
-  filter(metric == 'Duration')
-dur_exp <- weibull_estimates_test %>% 
+rd_dur <- regression_data %>% 
   filter(metric == 'Duration')
 
-plot(x = frst_obs$DOY, y = frst_exp$DOY)
-plot(x = peak_obs$DOY, y = peak_exp$DOY)
-plot(x = end_obs$DOY, y = end_exp$DOY)
-plot(x = dur_obs$DOY, y = dur_exp$DOY)
+# START
+summary( start_lm <- lm(rd_start$DOY_est ~ rd_start$DOY_obs + rd_start$sample_size_est) )
+print( start_lm_rmse <- sqrt(mean((rd_start$DOY_obs - rd_start$DOY_est)^2)) / 
+         (max(rd_start$DOY_obs) - min(rd_start$DOY_est)) )
+start_kt <- cor.test(rd_start$DOY_est, rd_start$DOY_obs, method="kendall")
 
-summary(lm(frst_exp$DOY ~ frst_obs$DOY))
-summary(lm(peak_exp$DOY ~ peak_obs$DOY))
+# PEAK
+summary( peak_lm <- lm(rd_peak$DOY_est ~ rd_peak$DOY_obs + rd_start$sample_size_est) )
+print( peak_lm_rmse <- sqrt(mean((rd_peak$DOY_obs - rd_peak$DOY_est)^2)) / 
+         (max(rd_peak$DOY_obs) - min(rd_peak$DOY_est)) )
+peak_kt <- cor.test(rd_peak$DOY_est, rd_peak$DOY_obs, method="kendall")
 
-rm(frst_obs, frst_exp, peak_obs, peak_exp, end_obs, end_exp, dur_obs, dur_exp)
+# END
+summary( last_lm <- lm(rd_last$DOY_est ~ rd_last$DOY_obs) )
+print( last_lm_rmse <- sqrt(mean((rd_last$DOY_obs - rd_last$DOY_est)^2)) / 
+         (max(rd_last$DOY_obs) - min(rd_last$DOY_est)) )
+end_kt <- cor.test(rd_last$DOY_est, rd_last$DOY_obs, method="kendall")
+
+# DURATION
+summary( duration_lm <- lm(rd_dur$DOY_est ~ rd_dur$DOY_obs) )
+print( dur_lm_rmse <- sqrt(mean((rd_dur$DOY_obs - rd_dur$DOY_est)^2)) / 
+         (max(rd_dur$DOY_obs) - min(rd_dur$DOY_est)) )
+dur_kt <- cor.test(rd_dur$DOY_est, rd_dur$DOY_obs, method="kendall")
+
+rm(regression_data, weibull_estimates, ci)
+```
+
+```{r Plot Correlation, warning = F}
+
+png(file = paste0(here(), '/results/plots/phenology_estimates_10_90.png'), 
+    width = 4, height = 4, pointsize = 12)
+
+par(pty="s", mfrow = c(2,2), mar = c(3,1,2,1))
+
+plotCI(x = rd_start$DOY_obs,  rd_start$DOY_est,
+       li = rd_start$DOY_low, ui = rd_start$DOY_high, 
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
+       xlim = c(140,220), ylim = c(140,220),
+       main = "First Flower Date",
+       xlab = "", ylab = "Estimated (DOY)")
+text(155, 215, paste0("tau = ", round(start_kt[["estimate"]][["tau"]], 3)))
+text(155, 208, "p < 0.001")
+abline(start_lm)
+
+plotCI(x = rd_peak$DOY_obs,  rd_peak$DOY_est,
+       li = rd_peak$DOY_low, ui = rd_peak$DOY_high,
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
+       xlim = c(140,240), ylim = c(140,240),
+       main = "Peak Flower Date",
+       xlab = "", ylab = "Estimated (DOY)")
+#text(175, 235, paste0('RMSE = ', round(peak_lm_rmse, 3)))
+text(155, 235, paste0("tau = ", round(peak_kt[["estimate"]][["tau"]], 3)))
+text(155, 225, "p < 0.001")
+abline(peak_lm)
+
+plotCI(x = rd_last$DOY_obs,  rd_last$DOY_est,
+       li = rd_last$DOY_low, ui = rd_last$DOY_high,
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
+       xlim = c(160,250), ylim = c(160,250),
+       main = "Last Flower Date",
+       xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
+#text(175, 245, paste0('RMSE = ', round(last_lm_rmse, 3)))
+text(175, 245, paste0("tau = ", round(end_kt[["estimate"]][["tau"]], 3)))
+text(175, 235, "p < 0.001")
+abline(last_lm)
+
+plotCI(x = rd_dur$DOY_obs,  rd_dur$DOY_est,
+       li = rd_dur$DOY_low, ui = rd_dur$DOY_high,
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey30', sfrac = 0.0, 
+       xlim = c(10,80), ylim = c(10,80),
+       main = "Duration",
+       xlab = "Observed (Days)", ylab = "Estimated (Days)")
+#text(25, 75, paste0('RMSE = ', round(dur_lm_rmse, 3)))
+text(25, 65, paste0("tau = ", round(dur_kt[["estimate"]][["tau"]], 3)))
+text(25, 55, paste0("p.val = ", round(dur_kt[["p.value"]], 3)))
+abline(duration_lm)
+
+dev.off()
+
+rm(rd_start, rd_peak, rd_last, rd_dur, groundTruth, weibull_estimates_test,
+   duration_lm, end_lm, last_lm, peak_lm, start_lm,
+   dur_lm_rmse, last_lm_rmse, peak_lm_rmse, start_lm_rmse,
+   dur_kt, end_kt, last_kt, peak_kt, start_kt)
 ```
 
 
