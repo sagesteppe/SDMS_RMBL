@@ -7,6 +7,8 @@ output: html_document
 
 We extensively investigate the spatial filtering of ecological interactions. We make a short and cursory glance at the temporal filters upon ecological interactions. 
 
+Major, un-addressed, concerns using the weibull distribution to model vascular plant flowering phenology include the consideration of herbarium records from across a major environmental gradients. I seek to reduce these issues here by:  selecting herbarium records from similar habitats, ensuring that these records occur within the bounds of when major factors would preclude flowering - e.g. snow. 
+
 ```{r load libraries, results='hide', message=F, warning=F}
 library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
@@ -97,11 +99,12 @@ lower_snow_bound <- lwr_snw_bnd(snow_files, gothic)
 ```{r calculate first event where snow present for 3 or more days, warning = F, message = F}
 
 upper_snow_bound <- uppr_snw_bnd(snow_files, gothic)
+median(upper_snow_bound$DOY)
 
 rm(x_year_snow,i, snow_files, rmbl, snow_crs, gothic, lwr_snw_bnd, uppr_snw_bnd)
 ```
 
-We here calculate weibull based estimates of the date of flowering onset, cessation, and the dates when 10% of individuals are flowering, peak flowering (50% of individuals), and when 9-% of individuals have flowered. 
+We here calculate weibull based estimates of the date of flowering onset, cessation, and the dates when 10% of individuals are flowering, peak flowering (50% of individuals), and when 90% of individuals have flowered. 
 
 ```{r calculate weibull phenology estimates 1}
 
@@ -122,6 +125,7 @@ cleaner_phenology_records <- spp_phen_recs %>%
 weibull_input <- cleaner_phenology_records %>% 
   filter(Observations >= 10) %>% # weibull requires 10 records to calculate.
   split(., .$Species)
+
 ```
 
 ```{r calculate weibull phenology estimates 2, echo = F, warning = F, eval = F}

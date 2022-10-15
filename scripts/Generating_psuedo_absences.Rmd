@@ -130,7 +130,7 @@ When ML seems to perform better than traditional techniques, I still think it is
 
 ## 3.2 Ensure each Species data frame which will be subjected to Linear regression has 1,000 records, boosted by pseudo-absences.
 
-In SDMs built from GLM's and GAM's a much higher number of (pseudo)-absences are required, 10,000 has been suggesed as a good rule of thumb, but this lead to results where we could not generalize occurrence from the training data. We will cut this rule an order of magnitude to 1000 points. When selecting these absences, we will allow for the placement to be randomly distributed across the geographic extent of analysis (excluding BLM land - remember these areas are accounted for by AIM). We will use minimum offset distances to avoid sampling the same raster cell twice. So we do not actually spatially explicitly sample here, we will just sample the sub-setted data frame from the raster 1,000 times, after removing the presences. 
+In SDMs built from GLM's and GAM's a much higher number of (pseudo)-absences are required, 10,000 has been suggested as a good rule of thumb, but this lead to results where we could not generalize occurrence from the training data. We will cut this rule an order of magnitude to 1000 points. When selecting these absences, we will allow for the placement to be randomly distributed across the geographic extent of analysis (excluding BLM land - remember these areas are accounted for by AIM). We will use minimum offset distances to avoid sampling the same raster cell twice. So we do not actually spatially explicitly sample here, we will just sample the sub-setted data frame from the raster 1,000 times, after removing the presences. 
 
 ```{r Psuedo-absence for Regression via geography, eval = F}
 
@@ -164,6 +164,7 @@ rm(PA_REG_DF1)
 ```
 
 We have these data saved so we do not need to rerun these extractions. 
+
 ```{r, Bring in Regression Pseudo-Absences, eval = F}
 PA_REG_DF <- st_read(here("data/processed/Pseudo_absences_regression_PREDICTED.shp"), quiet = T) # 461647
 PA_REG_DF <- PA_REG_DF %>% drop_na(PCL_SE1) 
@@ -225,7 +226,7 @@ rm(PA_ML_DF1)
 ```
 
 ```{r}
-rm(WPDPV1, WPDPV2, BLM_AIM, BLM_CP, blm_cp_s, ecoregion_bound, test, test1, spp_occurrences_reg_random)
+rm(WPDPV1, WPDPV2, BLM_AIM, BLM_CP, blm_cp_s, ecoregion_bound, spp_occurrences_reg_random)
 ```
 
 ```{r}
@@ -236,7 +237,7 @@ Sys.time()
 remaining_records <- lapply(PA_ML_DF_LIST, percentile)
 Sys.time()
 
-ab <- map(remaining_records, ~ .x %>% 
+ab <- map(remaining_records[2:5], ~ .x %>% 
   mutate(
     pres_records = nrow(filter(., occurrence == 1)),
     true_abs = nrow(filter(., occurrence == 0 & !is.na(PlotKey))),

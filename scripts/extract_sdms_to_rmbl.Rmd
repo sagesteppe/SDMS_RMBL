@@ -23,7 +23,6 @@ library(sf) # spatial data compliant with tidyverse
 library(raster) # raster data
 library(here)
 library(spdep)
-
 set.seed(12)
 ```
 
@@ -72,7 +71,7 @@ for (i in 1:nrow(mst.bh)){
 
 lines <- lines %>% st_as_sf(crs = 32613)
 st_crs(lines) <- 32613
-st_geometry(lines) <- 'geometry'
+st_geometry(lines) <- 'geometry' 
 
 rm(dist_nb, coords, listw, mst.bh, i, sites_cent)
 ``` 
@@ -124,11 +123,9 @@ rm(slope_angle_uri, slope_angle_path, slope_angle)
 ```
 
 
-
-
 ```{r Extract SDM predictions to polygons underlaying the area, echo = F}
-
-extracted_values <- raster::extract(predictions_stack, study_area)
+study_area <- st_transform(study_area, st_crs(predictions_stack[[1]]))
+extracted_values <- terra::extract(predictions_stack, study_area)
 extracted_values <- data.frame(extracted_values)
 names(extracted_values) <- gsub("_glm.*", "", names(extracted_values))
 names(extracted_values) <- make.unique(names(extracted_values), "_")
@@ -165,7 +162,29 @@ targets <- extracted_values %>%
   filter(str_detect(name, '_1',negate= T))
 ```
 
+```{r write out target taxa, echo = F}
 
+targets <- targets %>% 
+  mutate(approach = if_else(str_detect(name, '_ml_2022'), 'ML', 'LM')) %>% 
+  mutate(name = str_remove(name, '_ml_2022.*$'))
+
+consensus <- targets %>% 
+  group_by(name) %>% 
+  filter(n() == 2) %>% 
+  distinct(name) %>% 
+  mutate(Algo = 'consensus')
+
+target <- targets %>% 
+  group_by(name) %>% 
+  filter(n() == 1) %>% 
+  mutate(Algo = approach) %>% 
+  bind_rows(., consensus) %>% 
+  dplyr::select(-approach, -Stat, -value) %>% 
+  arrange(name)
+
+write.csv(target, paste0(here(), '/data/processed/taxa_predicted_rmbl.csv'), row.names = F)
+
+```
 
 
 REFERENCES:

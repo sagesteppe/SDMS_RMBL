@@ -7,11 +7,11 @@ output: html_document
 
 
 ```{r load libraries, results='hide', message=F, warning=F}
-library(tidyverse) # data tidying
 library(here)
 library(lubridate)
 library(plotrix)
 source(here::here('scripts/phen_functions.R'))
+library(tidyverse) #data tidying
 ```
 
 We can only test the accuracy of the Weibull method on a subset of cerca 60 species we have created estimates for. An interesting component of the Weibull development paper is that the authors did not actually attempt to estimate phenological events using herbarium records and then test them using the RMBL data set, but rather used the same testing and training data set? (wtf this cannot be right must check paper).
@@ -21,12 +21,13 @@ While the National Phenology Network, and NEON both collect data sets on the tim
 ```{r}
 weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_phen.csv')) %>% 
   filter(taxon != 'Adenolinum lewisii') %>% 
-    mutate(taxon = case_when(
+  mutate(taxon = case_when(
     taxon == 'Ligularia bigelovii' ~ 'Senecio bigelovii',
     taxon == 'Zigadenus elegans' ~ 'Anticlea elegans',
     TRUE ~ taxon
   )) %>% 
-  mutate('Estimate' = 'Weibull-Subalpine')
+  mutate(Estimate = 'Weibull-Subalpine')
+
 
 weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_mixed_montane.csv')) %>% 
   mutate('Estimate' = 'Weibull-Montane') %>% 
@@ -192,58 +193,67 @@ summary( start_lm <- lm(rd_start$DOY_est ~ rd_start$DOY_obs + rd_start$sample_si
 print( start_lm_rmse <- sqrt(mean((rd_start$DOY_obs - rd_start$DOY_est)^2)) / 
          (max(rd_start$DOY_obs) - min(rd_start$DOY_est)) )
 start_kt <- cor.test(rd_start$DOY_est, rd_start$DOY_obs, method="kendall")
+summary(start_lm)$adj.r.squared
 
 # PEAK
 summary( peak_lm <- lm(rd_peak$DOY_est ~ rd_peak$DOY_obs + rd_start$sample_size_est) )
 print( peak_lm_rmse <- sqrt(mean((rd_peak$DOY_obs - rd_peak$DOY_est)^2)) / 
          (max(rd_peak$DOY_obs) - min(rd_peak$DOY_est)) )
 peak_kt <- cor.test(rd_peak$DOY_est, rd_peak$DOY_obs, method="kendall")
+summary(peak_lm)$adj.r.squared
 
 # END
 summary( last_lm <- lm(rd_last$DOY_est ~ rd_last$DOY_obs) )
 print( last_lm_rmse <- sqrt(mean((rd_last$DOY_obs - rd_last$DOY_est)^2)) / 
          (max(rd_last$DOY_obs) - min(rd_last$DOY_est)) )
 end_kt <- cor.test(rd_last$DOY_est, rd_last$DOY_obs, method="kendall")
+summary(last_lm)$adj.r.squared
 
 # DURATION
 summary( duration_lm <- lm(rd_dur$DOY_est ~ rd_dur$DOY_obs) )
 print( dur_lm_rmse <- sqrt(mean((rd_dur$DOY_obs - rd_dur$DOY_est)^2)) / 
          (max(rd_dur$DOY_obs) - min(rd_dur$DOY_est)) )
 dur_kt <- cor.test(rd_dur$DOY_est, rd_dur$DOY_obs, method="kendall")
+summary(duration_lm)$adj.r.squared
 
 rm(regression_data, weibull_estimates, ci)
 ```
 
 ```{r Plot Correlation, warning = F}
 
+
 png(file = paste0(here(), '/results/plots/phenology_estimates_10_90.png'), 
     width = 6, height = 6, pointsize = 4, units = 'cm', res = 300)
 
-par(pty="s",mgp=c(2,1,0),  mfrow = c(2,2), mar = c(3,3,1,1))
+par(pty="s", mgp=c(2,1,0),  mfrow = c(2,2), mar = c(3,3,2,2))
 
 plotCI(x = rd_start$DOY_obs,  rd_start$DOY_est,
        li = rd_start$DOY_low, ui = rd_start$DOY_high, 
        pch=20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
        xlim = c(140,220), ylim = c(140,220), axes = F,
        main = "First Flower Date",
-       xlab = "", ylab = "Estimated (DOY)")
+       xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
 axis(1)
 axis(2)
-text(155, 215, paste0("tau = ", round(start_kt[["estimate"]][["tau"]], 3)))
-text(155, 209, "p < 0.001")
-abline(start_lm, lty = 2)
+text(148, 214, expression("adj. r"^2*" = " ))
+text(162, 214, paste0(round(summary(start_lm)$adj.r.squared, 3)))
+text(155, 208, paste0("tau = ", round(start_kt[["estimate"]][["tau"]], 3)))
+text(155, 202, "p < 0.001")
+abline(start_lm)
+
 
 plotCI(x = rd_peak$DOY_obs,  rd_peak$DOY_est,
        li = rd_peak$DOY_low, ui = rd_peak$DOY_high,
        pch = 20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
        xlim = c(160,240), ylim = c(160,240), axes = F,
        main = "Peak Flower Date",
-       xlab = "", ylab = "Estimated (DOY)")
+       xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
 axis(1)
 axis(2)
-#text(175, 235, paste0('RMSE = ', round(peak_lm_rmse, 3)))
-text(175, 235, paste0("tau = ", round(peak_kt[["estimate"]][["tau"]], 3)))
-text(175, 229, "p < 0.001")
+text(168, 234, expression("adj. r"^2*" = " ))
+text(182, 234, paste0(round(summary(peak_lm)$adj.r.squared, 3)))
+text(175, 228, paste0("tau = ", round(peak_kt[["estimate"]][["tau"]], 3)))
+text(175, 222, "p < 0.001")
 abline(peak_lm)
 
 plotCI(x = rd_last$DOY_obs,  rd_last$DOY_est,
@@ -254,9 +264,10 @@ plotCI(x = rd_last$DOY_obs,  rd_last$DOY_est,
        xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
 axis(1)
 axis(2)
-#text(175, 245, paste0('RMSE = ', round(last_lm_rmse, 3)))
-text(235, 173, paste0("tau = ", round(end_kt[["estimate"]][["tau"]], 3)))
-text(235, 165, "p < 0.001")
+text(228, 179, expression("adj. r"^2*" = " ))
+text(242, 179, paste0(round(summary(last_lm)$adj.r.squared, 3)))
+text(235, 174, paste0("tau = ", round(end_kt[["estimate"]][["tau"]], 3)))
+text(235, 168, "p < 0.001")
 abline(last_lm)
 
 plotCI(x = rd_dur$DOY_obs,  rd_dur$DOY_est,
@@ -267,9 +278,10 @@ plotCI(x = rd_dur$DOY_obs,  rd_dur$DOY_est,
        xlab = "Observed (Days)", ylab = "Estimated (Days)")
 axis(1)
 axis(2)
-#text(25, 75, paste0('RMSE = ', round(dur_lm_rmse, 3)))
+text(70, 26, expression("adj. r"^2*" = " ))
+text(83, 26, paste0(round(summary(duration_lm)$adj.r.squared, 3)))
 text(75, 21, paste0("tau = ", round(dur_kt[["estimate"]][["tau"]], 3)))
-text(75, 15, paste0("p = ", round(dur_kt[["p.value"]], 3)))
+text(75, 16, paste0("p = ", round(dur_kt[["p.value"]], 3)))
 abline(duration_lm)
 
 dev.off()
@@ -279,7 +291,6 @@ rm(rd_start, rd_peak, rd_last, rd_dur, groundTruth, weibull_estimates_test,
    dur_lm_rmse, last_lm_rmse, peak_lm_rmse, start_lm_rmse,
    dur_kt, end_kt, last_kt, peak_kt, start_kt)
 ```
-
 
 
 CaraDonna, Paul J.; Inouye, David W. (2016): Phenological responses to climate change do not exhibit phylogenetic signal in a subalpine plant community. Wiley. Collection. https://doi.org/10.6084/m9.figshare.c.3307416.v1

@@ -8,6 +8,7 @@ output: pdf_document
 ```{r}
 library(tidyverse)
 library(raster)
+library(here)
 ```
 
 
@@ -50,22 +51,51 @@ rasters <- full_join(ls_line, ls_mach,
                      ) %>% 
   drop_na()
 
+rl <- rasters %>% dplyr::select(linear, binomial_linear) %>% 
+  distinct(linear, .keep_all = T)
+rm <- rasters %>% dplyr::select(machine, binomial_linear) %>% 
+  distinct(machine, .keep_all = T)
 # HERE WILL DEAL WITH DROPPING NA' ACROSS ALL GROUPS
 
-linear_stack <- raster::stack(rasters$linear)
-machine_stack <- raster::stack(rasters$machine)
-names(linear_stack) <- rasters$binomial
-names(machine_stack) <- rasters$binomial
+linear_stack <- terra::rast(rl$linear)
+machine_stack <- terra::rast(rm$machine)
 
-rm(ls, ls_mach, ls_line, linear, machine, files, ls1, rasters)
+rm(ls, ls_mach, ls_line, linear, machine, files, ls1, rasters, rl, rm)
 ```
 
 ```{r Create composite rasters for visualization}
 
-lin_mean <- mean(linear_stack)
-mach_mean <- mean(machine_stack)
-mean_variances <- abs(lin_mean - mach_mean)
+# due to a limitiation in the C implementation I had to run these by hand... even though
+# my computer was able to do do it on all 594 datasets at once... (i did not save the results)
+#lin_mean <- terra::app(linear_stack[[496:594]], 
+#                       filename = paste0(here(), '/results/plots/', 
+#                                         'linear_model_mean5.tif'),
+#                                         fun = 'mean', overwrite = T)
+
+files <- paste0(here(),'/results/plots/', list.files(paste0(here(), '/results/plots'), pattern = "tif$"))
+linear = files[str_detect(files, 'linear')]
+linear_stack <- terra::rast(linear)
+mean_linear <- mean(linear_stack)
+
+#mach_mean <- terra::app(machine_stack[[446:534]],
+#                        filename = paste0(here(), '/results/plots/', 
+#                                          'machine_model_mean5.tif'),
+#                        fun = 'mean', 
+#                        overwrite = F)
+
+files <- paste0(here(),'/results/plots/', list.files(paste0(here(), '/results/plots'), pattern = "tif$"))
+machine = files[str_detect(files, 'machine')]
+machine_stack <- terra::rast(machine)
+mean_machine <- mean(machine_stack)
+plot(mean_machine)
+plot(mean_linear)
+
+mean_variances <- mean_linear - mean_machine
 # either way determine the absolute differences in mean predictions
 plot(mean_variances)
+
+#length(unlist(strsplit(c('AAAAGAGTATATTCGAGATCAAGGTGCCCCTATAGTTGTTAAAGCAGATGGATTGGCT#GCTGGTAAAGGTGTAATTGTTGCAATGACTCCGGAAGAGGCTCTTGAAGCT'), split = "")))
+
+rm(files, machine, machine_stack, linear_stack)
 ```
 

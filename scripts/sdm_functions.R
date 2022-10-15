@@ -499,7 +499,6 @@ Linear_SDM <- function(x){
 }
 
 
-
 ################
 # MACHINE SDM #
 ################
@@ -622,7 +621,6 @@ total_area <- function(x){
 ############################
  
 # wrote one and what happened?
-
 
 gbif_collector <- function(dataset){
   

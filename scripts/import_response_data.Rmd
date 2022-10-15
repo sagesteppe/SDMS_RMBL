@@ -207,8 +207,6 @@ BLM_AIM %>%
   knitr::kable(caption = "Number of Assess, Inventory, & Monitor (AIM), Plots in Study Extent", 
                col.names = "Number of Plots")
 
-
-
 st_write(BLM_AIM, paste0(here(), '/data/processed/AIM_Records_study_area.shp'))
 rm(ecoregions)
 ```
@@ -245,7 +243,6 @@ extra <- as.data.frame(spp_occurrences) %>%
 
 rm(AIM_presence, species)
 ```
-
 
 We will also do slight spatial filtering here. As each cell is 90 x 90m, we will need to remove all records within (√ 90^2 + 90^2) 128 meters (the diagonal of the raster cells) of each other within taxon. These two steps will eliminate pseudo-replication in the broad sense (i.e. a count of two presences per an individual cell). The if else are nested in here pretty gross, but it seems to catch the corners. 
 

@@ -24,7 +24,7 @@ list.files(paste0(here(), '/results/maps/'),
 predictions_stack <- raster::stack(predictions_stack)
 ```
 
-We will use the ecoregion bound to query GBIF for more presence records for testing ensembles for prediction thresholds. We will also used the records which were removed from the intial BIEN data due to high levels of spatial auto-correlation. 
+We will use the ecoregion bound to query GBIF for more presence records for testing ensembles for prediction thresholds. We will also used the records which were removed from the initial BIEN data due to high levels of spatial auto-correlation. 
 ```{r Import Pruned Occurrence Records for Presences, echo = F}
 pseudo_abs <- st_read(paste0(here(), '/data/processed/Pseudo_absences_regression.shp'), 
                       quiet = T)[,c(1:4,21)]
@@ -159,11 +159,13 @@ testing_set <- mapply(BinLogReg_abs, x = presences_L, y = true_abs_L,
                           SIMPLIFY = FALSE)
 testing_set <- bind_rows(testing_set) 
 
-testing_set %>% group_by(binomial) %>% 
+table <- testing_set %>% group_by(binomial) %>% 
   st_drop_geometry() %>% 
   count(occurrence) %>% 
   print()
 rownames(testing_set) <- NULL
+
+# write.csv(table, '/hdd/yun master/MEE_manuscript/data/PA_records_logistic_regression.csv')
 
 rm(true_abs, presences_L, true_abs_L, pseudo_abs)
 ```
@@ -237,7 +239,7 @@ test  <- testing_data[-index, ]
 rm(index)
 ```
 
-
+fit a binomial regression here
 ```{r fit model, echo = F}
 allspecies_log <- glm(occurrence ~ Value, data = train, family = "binomial")
 mod_sum <- broom::tidy(allspecies_log)
@@ -273,6 +275,7 @@ colnames(ctab_report) <- c('Absence_train', 'Presence_train',
                            'Absence_test', 'Presence_test')
 knitr::kable(ctab_report)
 
+# write.csv(ctab_report, '/hdd/yun master/MEE_manuscript/data/Pa_conting_table.csv')
 rm(ctab_report)
 ```
 
@@ -310,7 +313,9 @@ evaluation_table <- data.frame(
 evaluation_table$Value <- round(evaluation_table$Value, 2)
 knitr::kable(evaluation_table)
 
-rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, pair, ctab_train, ctab_test, evaluation_table)
+write.csv(evaluation_table, '/hdd/yun master/MEE_manuscript/data/evaluation_table')
+
+rm(accuracy_train, accuracy_test, concordance, Recall, TNR, Precision, F_Score, roc,conc, disc, tied, ctab_train, ctab_test, evaluation_table)
 ```
 
 ```{r create prediction plot, warning = F, echo = F}
@@ -342,18 +347,12 @@ ggplot(newdata3, aes(x = Value, y = PredictedProb)) +
        x ="SDM Probability of Occurrence", y = "Occurrence") +
   theme(plot.title = element_text(hjust = 0.5)) +
   ylim(0,1) +
+  scale_y_discrete(breaks = c(0,0.25,0.5,0.75,1), 
+                   labels=c('Absent','','','','Present')) +
   theme_classic()
 
 rm(newdata1, newdata2, newdata3)
 ```
-
-
-## Model evaluate results using a gee or other
-
-- maybe but not sure of nice things like prediction tables... ?
-
-https://public.pensoft.net/items/?p=7TVeXpoqfNYT89tyrm3ifrTeG9Wv8P676JSQp%2FH2pj9hhtoybol4GF7LEbj3fxHT5Fo8esHsscAdZZZhYAyuGXOqT7k9Md4TUeAnjyvOFBDvYDE%3D&n=gB5kddQ8acsRsM1Z%2FSm8K%2B2EDty6
-https://onlinelibrary.wiley.com/doi/10.1111/j.2007.0906-7590.05171.x
 
 
 

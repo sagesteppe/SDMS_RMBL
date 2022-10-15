@@ -135,7 +135,7 @@ rm(rcs_pr_grid)
 
 maybe just take the mean # of records from the adjacent cells? will then need to repeatedly subset the spp. richness from there...
 
-The grid cell containing the RMBL records has a surplus of records relative to cells in other areas. It is challenging to model how many records may occur in this area without the Field Station Existence. Here we take an absurdly conservative approach to calculate the number of records which may exist in the area by setting the number of records form the cell containing RMBL equal to the most collections from an adjacent cell. The reason this approach will be conservative is that nearly all of the adjacent cells do **not** have road access to them, or they are in fact largely occupied by a ton and private property. 
+The grid cell containing the RMBL records has a surplus of records relative to cells in other areas. It is challenging to model how many records may occur in this area without the Field Stations existence. Here we take an absurdly conservative approach to calculate the number of records which may exist in the area by setting the number of records form the cell containing RMBL equal to the most collections from an adjacent cell. The reason this approach will be conservative is that nearly all of the adjacent cells do **not** have road access to them, or they are in fact largely occupied by private property.
 
 ```{r Identify Cells Adjacent to RMBL to determine how large of sample to take from RMBL Cell, warning = F}
 grids_out <- poly100 %>% 
@@ -191,7 +191,6 @@ abc <- spp_pres_sampler(target = focal_records, range = poly100_t_dist_sub,
 
 rm(focal_records, grid2rm, grids_out, poly100, public_lands_ownership, recs2sample, target_grid, poly100_t_dist_sub)
 ```
-
 
 THESE RESULTS VERY CLOSE A COUPLE THINGS TO MAKE SURE TAXONOMY 1:1 MATCH UP - NOTE ORCHIDS ARE RESTRICTED FROM DB. 
 ```{r}
@@ -340,6 +339,7 @@ rm(rmbl_fam, target_fam, WFO.data)
 ```
 
 While running these results several limitations of my digitization of the Vascular Plant list became evident. I reviewed the RMBL absence records up to 20 km from the center of the field station and updated records which were either missed entirely (the new csv being imported), or not updated appropriately via any taxonomic cleaning. 
+
 ```{r Update names in dataset to reflect current taoxnomic opinions}
 
 rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv')) %>% 
@@ -445,7 +445,7 @@ colnames(model_sum_tab)[4] <- c('CI 97.5')
 knitr::kable(model_sum_tab)
 ```
 
-We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
+We can present results using a classification table, more importantly this table will be used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
 
 ```{r Classification Table, echo = F}
 pred_prob <- predict(allspecies_log, test, type = "response")
@@ -582,7 +582,8 @@ L4 <- st_intersection(poly100_t_dist, ecoregions) %>%
 rm(poly100_t_dist, ecoregions, poly100_bb, rmbl)
 ```
 
-The records within the distances where the midpoint of the logistic regression is may readily be acquired. If one is so interested they may acquire further records by focusing on 
+The records within the distances where the midpoint of the logistic regression is may readily be acquired. If one is so interested they may acquire further records by focusing on collecting occurrences from similar habitat up to the third quantile. 
+
 ```{r Identify probability values and pull out from dataset}
 
 closest_records <- testing_data %>% 
