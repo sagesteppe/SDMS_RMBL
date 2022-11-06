@@ -94,8 +94,6 @@ mean_variances <- mean_linear - mean_machine
 # either way determine the absolute differences in mean predictions
 plot(mean_variances)
 
-#length(unlist(strsplit(c('AAAAGAGTATATTCGAGATCAAGGTGCCCCTATAGTTGTTAAAGCAGATGGATTGGCT#GCTGGTAAAGGTGTAATTGTTGCAATGACTCCGGAAGAGGCTCTTGAAGCT'), split = "")))
-
 rm(files, machine, machine_stack, linear_stack)
 ```
 

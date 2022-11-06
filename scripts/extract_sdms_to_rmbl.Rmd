@@ -31,6 +31,7 @@ predictions_stack <- paste0(here(), '/results/maps/',
 list.files(paste0(here(), '/results/maps/'),
            pattern = "*.tif$" ))
 predictions_stack <- raster::stack(predictions_stack)
+
 ```
 
 ```{r Import Site data, warning=F, echo = F}
@@ -155,16 +156,23 @@ extracted_values  %>%
 
 removals <- extracted_values %>% 
   filter( Stat == 'Mean' & value <= 0.5) %>% 
-  filter(str_detect(name, '_1',negate= T))
+  filter(str_detect(name, '_1$',negate= T))
 
 targets <- extracted_values %>% 
   filter(Stat == 'Mean' & value >= 0.5) %>% 
-  filter(str_detect(name, '_1',negate= T))
+  filter(str_detect(name, '_1$',negate= T))
 ```
+
+
+# THIS NEEDS TO REFLECT THAT AN EXCESS OF SPECIES WERE MODELLED AT RMBL, AS WE STARTED WITH THE VASCULAR FLORA, BEFORE GOING BACK TO TRY THE NEW APPROACH. FOR THE ANALYSIS SPECIES WHICH WERE NOT RECOVERED VIA THE DISTANCE SEARCH AND REGRESSION NEED BE REMOVED.
 
 ```{r write out target taxa, echo = F}
 
-targets <- targets %>% 
+targets1 <- targets %>% 
+  mutate(approach = if_else(str_detect(name, '_ml_2022'), 'ML', 'LM')) %>% 
+  mutate(name = str_remove(name, '_ml_2022.*$'))
+
+removals1 <- removals %>% 
   mutate(approach = if_else(str_detect(name, '_ml_2022'), 'ML', 'LM')) %>% 
   mutate(name = str_remove(name, '_ml_2022.*$'))
 
@@ -183,7 +191,63 @@ target <- targets %>%
   arrange(name)
 
 write.csv(target, paste0(here(), '/data/processed/taxa_predicted_rmbl.csv'), row.names = F)
+write.csv(removals1, paste0(here(), '/data/processed/taxa_not_predicted_rmbl.csv'), row.names = F)
+write.csv(targets1, paste0(here(), '/data/processed/taxa_predicted_rmbl_stats_only.csv'), row.names = F)
+```
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# determine the true absences and presences for RMBL ONLY.
+
+rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_wfo_synonyms.csv'))# %>% 
+  mutate(Node.1 = replace_na(Node.1, 'Vascular')) %>% 
+  mutate('PrtyFlrs' = case_when(
+    Group != 'angiosperms' ~ 0,
+    Group == 'angiosperms' & Order == 'Poales' ~ 0,
+    TRUE ~ 1
+  )) %>% 
+  filter(PrtyFlrs == 1) %>% 
+  mutate(name = str_replace_all(Species, " ", "_"))
+
+target <- read.csv(paste0(here(), '/data/processed/taxa_predicted_rmbl.csv')) %>% 
+  mutate(name = str_replace(name, 'uva.ursi', "uva_ursi")) %>% 
+  mutate(Presence = if_else(name %in% rmbl_spp$name, 1, 0) )
+
+
+LM_res <- target %>% filter(Algo %in% c('LM', 'consensus')) %>% nrow()
+ML_res <- target %>% filter(Algo %in% c('ML', 'consensus')) %>% nrow()
+
+```
+
+
+
+```{r}
+library(WorldFlora) # maybe you need this
+WFO.remember()
+
+rmbl_spp <- filter(target, !is.na(name)) %>% pull(name)
+rmbl_fam <- wfo_family_finder(rmbl_spp)
+target_fam <- wfo_family_finder(target_spp)
+
+
+??wfo_family_finder
 ```
 
 

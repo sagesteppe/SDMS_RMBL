@@ -303,7 +303,7 @@ rm(rmbl_spp_CLEAN, rmbl_spp_DURTY, target_spp_CLEAN, target_spp_DURTY, target_sp
 
 
 ```{r, message = F, results = 'hide', eval = F}
-library(WorldFlora) # maybe you need this fam.
+library(WorldFlora) # maybe you need this
 WFO.remember()
 
 rmbl_spp <- filter(rmbl_spp, !is.na(Species))
@@ -344,8 +344,8 @@ While running these results several limitations of my digitization of the Vascul
 
 rmbl_spp <- read.csv(paste0(here(), '/data/processed/rmbl_spp_synonyms.csv')) %>% 
   rbind(read.csv(paste0(here(), '/data/processed/missed_rmbl_species.csv'))) # my digitization of the 
-# rmbl vascular plant checklist left something to be desired, I missed (at least) these taxa. I looked
-# them u pby handn on WFO and transcribed the info
+# rmbl vascular plant checklist left something to be desired, I missed these taxa. I looked
+# them up by hand on WFO and transcribed the info
 
 rmbl_spp <- rmbl_spp %>% 
   mutate(scientificName = case_when(
