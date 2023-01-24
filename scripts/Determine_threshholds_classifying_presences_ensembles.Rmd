@@ -12,7 +12,7 @@ library(raster) # raster data
 library(here)
 library(rgbif)
 
-source(here::here('scripts/sdm_functions.R'))
+source('sdm_functions.R')
 set.seed(12)
 ```
 
@@ -256,6 +256,7 @@ knitr::kable(model_sum_tab)
 ```
 
 We can present results using a classification table, more importantly this table will be  used to calculate a variety of metrics for evaluating the ability of the model to accurately classify observations. 
+
 ```{r Classification Table, echo = F}
 pred_prob <- predict(allspecies_log, test, type = "response")
 
@@ -275,11 +276,16 @@ colnames(ctab_report) <- c('Absence_train', 'Presence_train',
                            'Absence_test', 'Presence_test')
 knitr::kable(ctab_report)
 
+caret::confusionMatrix(ctab_test)
+
 # write.csv(ctab_report, '/hdd/yun master/MEE_manuscript/data/Pa_conting_table.csv')
 rm(ctab_report)
+
 ```
 
 ```{r Model Diagnostics, echo = F}
+# caveman code below
+
 accuracy_train <- sum(diag(ctab_train))/sum(ctab_train)*100
 accuracy_test <- sum(diag(ctab_test))/sum(ctab_test)*100
 # Calculate the True Positive Rate

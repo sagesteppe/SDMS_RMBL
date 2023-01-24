@@ -651,3 +651,36 @@ write.csv(kept_recs1, paste0(here(), '/data/processed/spp2model.csv'), row.names
 rm(kept_recs1)
 ```
 
+
+
+Create list of herbaria for acknowledgements section
+```{r}
+
+occ_records <- read.csv(
+  file.path('..', 'data', 'raw', '100km_bien_occurrence.csv')) %>% 
+  distinct(dataset, .keep_all = T) %>% 
+  filter(!datasource %in% c('VegBank', 'FIA')) %>% 
+  mutate(dataset = case_when(
+    dataset == 'Moscow State University' ~ 'MW',
+    dataset == 'Royal Ontario Museum' ~ 'TRT',
+    dataset =='University of Alberta Museums' ~ 'ALTA',
+    dataset == 'University of British Columbia' ~ 'UBC',
+    dataset == 'ca.ubc' ~ 'UBC',
+    dataset == 'Milwaukee Public Museum (MPM)' ~ 'MIL',
+    dataset == 'University of Calgary' ~ 'UAC',
+    dataset == 'Université de Montréal Biodiversity Centre' ~ 'MT',
+    dataset ==  'RBCM' ~ 'V',
+    dataset == 'UConn' ~ 'CONN',
+    dataset == 'NHMUK' ~ 'BM',
+    dataset == 'MOBOT' ~ 'MO',
+    dataset == 'INECOL' ~ 'XAL',
+    dataset == 'ENCB-IPN' ~ 'ENCB',
+    TRUE ~ as.character(dataset))) %>% 
+  select(dataset) %>% 
+  drop_na() %>% 
+  arrange(dataset) 
+
+write.csv(occ_records, '../data/processed/herbaria_4_acknowledgements.csv')
+
+```
+

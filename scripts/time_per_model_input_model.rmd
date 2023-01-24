@@ -1,0 +1,213 @@
+---
+title: "evaluate_SDMs"
+author: "steppe"
+date: "3/13/2022"
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    includes:
+      in_header: float_free.tex
+  word_document: default
+
+---
+
+
+```{r}
+library(tidyverse)
+library(AICcmodavg)
+```
+
+
+```{r Pull in Plots and Prepare Time Series}
+
+files <- data.frame(fname = list.files('../results/stats'))
+
+
+times <- files %>% 
+  mutate(Species = str_extract(fname, '[^_]*_[^_]*'),
+         Model = str_remove(str_extract(fname, "_ml|glm_"), '_'),
+         Date = str_remove(str_extract(fname, '2022.*$'), '[.]csv'),
+         Date = as.POSIXct(Date, format = "%Y-%m-%d_%H:%M:%OS"),
+         Cols = if_else(Model == 'ml', 'aquamarine3', 'hotpink3'))
+
+plot(times$Date, times$Date , cex = 0.9 ,xaxt = "n", col = times$Cols )
+
+times_ml <- filter(times, Model == 'ml')
+times_ml <- times_ml[order(times_ml$Date, decreasing = F),]
+times_ml$seconds <- c(NA, difftime(times_ml$Date[-1],
+                               times_ml$Date[-nrow(times_ml)],
+                               units="secs"))
+times_ml <- times_ml[times_ml$seconds <= 7200,]
+times_ml <- times_ml[complete.cases(times_ml),]
+
+times_lm <- filter(times, Model == 'glm')
+times_lm <- times_lm[order(times_lm$Date, decreasing = F),]
+times_lm$seconds <- c(NA, difftime(times_lm$Date[-1],
+                               times_lm$Date[-nrow(times_lm)],
+                               units="secs"))
+
+times_lm <- times_lm[times_lm$seconds <= 7200,]
+times_lm <- times_lm[complete.cases(times_lm),]
+
+rm(files, times)
+```
+
+```{r Pull in Statistics of intial runs}
+
+lm_models <- lapply(paste0('../results/stats/', times_lm$fname), read.csv)
+n <- times_lm$fname
+names(lm_models) <- n
+
+lm_models <- data.table::rbindlist(lm_models, idcol = 'fname') %>% 
+  select(-X) %>% 
+  mutate(Model = if_else(modelID <= 3, 'GLM','GAM')) %>% 
+  group_by(fname) %>% 
+  add_count(name = 'Converged_Models')%>% 
+  group_by(fname, Model) %>% 
+  add_count(name = 'Run')
+
+ml_models <- lapply(paste0('../results/stats/', times_ml$fname), read.csv)
+n <- times_ml$fname
+names(ml_models) <- n
+
+ml_models <- data.table::rbindlist(ml_models, idcol = 'fname') %>% 
+  select(-X) %>% 
+  mutate(Model = if_else(modelID <= 3, 'RF', 'BRT')) %>%  
+  group_by(fname) %>% 
+  add_count(name = 'Converged_Models') %>% 
+  group_by(fname, Model) %>% 
+  add_count(name = 'Run')
+
+rm(n)
+```
+
+
+```{r Sample size for models}
+
+occ_per_sp_lm <- sf::st_read('../data/processed/spp_occurences_regression.shp', quiet = T) %>% 
+  sf::st_drop_geometry() %>% 
+  select(binomial, no_record) %>% 
+  distinct()
+
+occ_per_spp_ml <- sf::st_read('../data/processed/spp_occurences_no_duplicates.shp', quiet = T) %>% 
+  sf::st_drop_geometry() %>% 
+  select(binomial, no_record) %>% 
+  distinct()
+
+```
+
+
+```{r}
+
+lm_model_runs <- lm_models %>% 
+  distinct(fname, .keep_all = T) %>% 
+  select(fname, Converged_Models, Model, Run)
+times_lm_model <- times_lm %>% 
+  select(fname, seconds, Species)
+
+lm_time_trials <- left_join(times_lm_model, lm_model_runs, by = 'fname') %>% 
+  left_join(., occ_per_sp_lm, by = c('Species' = 'binomial'))
+
+
+ml_model_runs <- ml_models %>% 
+  distinct(fname, .keep_all = T) %>% 
+  select(fname, Converged_Models, Model, Run)
+times_ml_model <- times_ml %>% 
+  select(fname, seconds, Species)
+
+ml_time_trials <- left_join(times_ml_model, ml_model_runs, by = 'fname') %>% 
+  left_join(., occ_per_spp_ml, by = c('Species' = 'binomial'))
+
+
+rm(times_ml_model, times_lm_model, occ_per_sp_lm, occ_per_spp_ml, 
+   lm_model_runs, ml_model_runs)
+```
+
+
+```{r Time Spent producing Linear Models}
+
+lm_time_trials %>% 
+  distinct(fname, .keep_all = T) %>% 
+  summarize(Hours = sum(seconds)/3600)
+
+ggplot(lm_time_trials, aes(y = seconds, x = Converged_Models)) +
+  geom_jitter()
+
+m_interactive <- glm(seconds ~ Converged_Models * no_record, family = poisson, data = lm_time_trials)
+m_additive <- glm(seconds ~ Converged_Models + no_record, family = poisson, data = lm_time_trials)
+m_converge <- glm(seconds ~ Converged_Models, family = poisson, data = lm_time_trials)
+
+
+aictab(cand.set = list(m_interactive, m_additive, m_converge),
+       modnames = c('interactive', 'additive', 'converge'))
+
+ggplot(lm_time_trials, aes(y = seconds, x = Converged_Models)) +
+  geom_jitter(shape=21, alpha = 0.5, aes(fill = no_record)) +
+  geom_smooth(method = stats::glm, se = T,  formula = y ~ x,
+        method.args = list(family = "poisson")) +
+  
+ # scale_fill_gradient2(low="blue", mid="white", high="red", 
+#                        limits = c(100, 1200), oob = scales::squish)
+
+rm(m_interactive, m_additive, m_converge)
+```
+
+```{r Time Spent producing Machine Learning Models}
+#hist(ml_time_trials$seconds)
+
+ml_time_trials %>% 
+  distinct(fname, .keep_all = T) %>% 
+  summarize(Hours = sum(seconds)/3600)
+
+
+m_interactive <- glm(seconds ~ Converged_Models * no_record, family = poisson, data = ml_time_trials)
+m_additive <- glm(seconds ~ Converged_Models + no_record, family = poisson, data = ml_time_trials)
+m_converge <- glm(seconds ~ Converged_Models, family = poisson, data = ml_time_trials)
+
+aictab(cand.set = list(m_interactive, m_additive, m_converge),
+       modnames = c('interactive', 'additive', 'converge'))
+
+ggplot(ml_time_trials, aes(y = seconds, x = Converged_Models)) +
+  geom_jitter(shape=21, alpha = 0.5, aes(fill = no_record)) +
+  geom_smooth(method = stats::glm, se = T,  formula = y ~ x,
+        method.args = list(family = "poisson"))
+
+rm(m_interactive, m_additive, m_converge)
+
+( (48059.07 - 47743.90) / (47743.90) ) * 100
+options(scipen = 999)
+```
+
+
+
+### Relationship between number of records and individual model run diagnostics
+
+
+```{r, warning = F}
+
+initial_scores_lm <- left_join(lm_models, 
+                               select(lm_time_trials, fname, no_record),
+                               by = "fname")
+initial_scores_ml <- left_join(ml_models,
+                               select(ml_time_trials, fname, no_record), 
+                               by = "fname")
+
+par(mfrow = c(1,2))
+scatterplot3d::scatterplot3d(initial_scores_lm[,c('AUC', 'Kappa', 'TSS')], 
+                             cex.axis = 0.6, angle = 55, ylab = "",
+                             main = '    GLM & GAM', color = '#861094',
+                             xlim = c(0.6,1), ylim = c(0.2,1), zlim = c(0.2,1))
+scatterplot3d::scatterplot3d(initial_scores_ml[,c('AUC', 'Kappa', 'TSS')], 
+                             cex.axis = 0.6, angle = 55, zlab = "",
+                             main = '    RF & BRT', color= '#1E9510',
+                             xlim = c(0.6, 1), ylim = c(0.2,1), zlim = c(0.2,1))
+
+rm(initial_scores_lm, initial_scores_ml)
+```
+
+
+```{r}
+rm(in)
+```
+

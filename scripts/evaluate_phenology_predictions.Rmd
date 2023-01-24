@@ -195,22 +195,24 @@ print( start_lm_rmse <- sqrt(mean((rd_start$DOY_obs - rd_start$DOY_est)^2)) /
 start_kt <- cor.test(rd_start$DOY_est, rd_start$DOY_obs, method="kendall")
 summary(start_lm)$adj.r.squared
 
+
 # PEAK
 summary( peak_lm <- lm(rd_peak$DOY_est ~ rd_peak$DOY_obs + rd_start$sample_size_est) )
 print( peak_lm_rmse <- sqrt(mean((rd_peak$DOY_obs - rd_peak$DOY_est)^2)) / 
          (max(rd_peak$DOY_obs) - min(rd_peak$DOY_est)) )
 peak_kt <- cor.test(rd_peak$DOY_est, rd_peak$DOY_obs, method="kendall")
 summary(peak_lm)$adj.r.squared
+summary(peak_lm)
 
 # END
-summary( last_lm <- lm(rd_last$DOY_est ~ rd_last$DOY_obs) )
+summary( last_lm <- lm(rd_last$DOY_est ~ rd_last$DOY_obs + rd_start$sample_size_est) )
 print( last_lm_rmse <- sqrt(mean((rd_last$DOY_obs - rd_last$DOY_est)^2)) / 
          (max(rd_last$DOY_obs) - min(rd_last$DOY_est)) )
 end_kt <- cor.test(rd_last$DOY_est, rd_last$DOY_obs, method="kendall")
 summary(last_lm)$adj.r.squared
 
 # DURATION
-summary( duration_lm <- lm(rd_dur$DOY_est ~ rd_dur$DOY_obs) )
+summary( duration_lm <- lm(rd_dur$DOY_est ~ rd_dur$DOY_obs + rd_start$sample_size_est ) )
 print( dur_lm_rmse <- sqrt(mean((rd_dur$DOY_obs - rd_dur$DOY_est)^2)) / 
          (max(rd_dur$DOY_obs) - min(rd_dur$DOY_est)) )
 dur_kt <- cor.test(rd_dur$DOY_est, rd_dur$DOY_obs, method="kendall")
