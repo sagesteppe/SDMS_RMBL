@@ -10,6 +10,7 @@ output: pdf_document
 library(tidyverse) # data tidying
 library(sf) # spatial data compliant with tidyverse
 library(rgdal) # many spatial tools. 
+library(ggmap)
 ```
 
 
@@ -36,25 +37,73 @@ ecoregions <- sf::read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp")) %>%
   dplyr::select(NA_L3CODE, NA_L3NAME) %>% 
   filter(NA_L3NAME == 'Southern Rockies') %>% 
   st_union() %>% 
-  st_transform(5070)
+  st_transform(5070) %>% 
+  st_as_sf()
 
 buffer_distance <- units::as_units(50, "kilometers") # want to buffer the edges...
 ecoregion_bound <- st_convex_hull(ecoregions)
 ecoregion_bound <- st_buffer(ecoregion_bound, dist = buffer_distance) %>% 
   st_transform(5070) %>% 
-  st_as_sf() %>% 
-  mutate(data = "1")
-
-ggplot(ecoregion_bound) +
-  geom_sf() +
-  geom_sf(data = ecoregions, fill = "cyan") +
-  theme_bw()
+  st_as_sf() 
 
 ecoregion_bound <- as_Spatial(ecoregion_bound)
 rm(buffer_distance)
 
 writeOGR(ecoregion_bound, dsn = here('data/processed/'), layer = "SoRo_ecoregion_bound", driver = "ESRI Shapefile")
 ```
+
+
+```{r make quick map, eval = F}
+
+co <- c(left = -111, bottom = 34, right = -102, top = 44)
+co_map <- get_stamenmap(co, zoom = 8, maptype = "terrain-background")
+
+ggmap_bbox <- function(map) {
+  if (!inherits(map, "ggmap")) stop("map must be a ggmap object")
+  # Extract the bounding box (in lat/lon) from the ggmap to a numeric vector, 
+  # and set the names to what sf::st_bbox expects:
+  map_bbox <- setNames(unlist(attr(map, "bb")), 
+                       c("ymin", "xmin", "ymax", "xmax"))
+
+  # Coonvert the bbox to an sf polygon, transform it to 3857, 
+  # and convert back to a bbox (convoluted, but it works)
+  bbox_3857 <- st_bbox(st_transform(st_as_sfc(st_bbox(map_bbox, crs = 4326)), 3857))
+
+  # Overwrite the bbox of the ggmap object with the transformed coordinates 
+  attr(map, "bb")$ll.lat <- bbox_3857["ymin"]
+  attr(map, "bb")$ll.lon <- bbox_3857["xmin"]
+  attr(map, "bb")$ur.lat <- bbox_3857["ymax"]
+  attr(map, "bb")$ur.lon <- bbox_3857["xmax"]
+  map
+}
+
+co_map <- ggmap_bbox(co_map)
+
+states <- tigris::states()
+places <- tigris::places(state = c('CO', 'NM', 'WY')) %>% 
+  filter(NAME %in% c('Denver', 'Albuquerque', 'Rawlins', 'Grand Junction',
+                     'Durango', 'Laramie', 'Lander'))
+
+ecoregions <- st_transform(ecoregions, 3857)
+ecoregion_bound <- st_transform(ecoregion_bound, 3857)
+states <- st_transform(states, 3857)
+
+
+png(filename = '../results/plots/domain.png', bg = 'transparent', width = 720, height = 720)
+ggmap(co_map) +
+  geom_sf(data = states, fill = NA, inherit.aes = FALSE, color = 'grey50') +
+  geom_sf(data = ecoregion_bound, alpha = 0.2, color = 'black', fill = NA, lwd = 2, inherit.aes = FALSE) +
+  geom_sf(data = ecoregions, fill = "darkslategray4", alpha = 0.5, inherit.aes = FALSE, color = 'darkslategray4') +
+  geom_sf_label(data = places, aes(label = NAME), inherit.aes = F,
+                alpha = 0.5, label.size  = NA) +
+  theme_void() +
+  labs(title = 'Domain') + 
+  theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+
+
+```
+
 
 ```{r}
 rm(list = lsf.str())

@@ -121,12 +121,14 @@ vcor_res_matrix <- read.csv(here('data/processed/VIFcor_heatmap.csv')) %>%
   column_to_rownames('rowname') %>% 
   as.matrix()
 
+png(filename = '../results/plots/vifstep.png', bg = 'transparent', width = 720, height = 720)
 pheatmap::pheatmap(vifs_res_matrix, 
                    treeheight_row = 0, 
                    treeheight_col = 0, 
                    cutree_rows = 4, 
                    main= "Results of VIF step on all 26 Variables; 19 remain", 
                    border_color = 'black')
+dev.off()
 
 pheatmap::pheatmap(vcor_res_matrix, 
                    treeheight_row = 0, 
@@ -206,9 +208,10 @@ sum_stats <- sum_stats %>%
   #filter(Variable %in% layers) %>% 
   mutate(Val_scaled = scales::rescale(Value, to = c(0, 1)))
 
+png(filename = '../results/plots/variation.png', bg = 'transparent', width = 720, height = 720)
 sum_stats %>% filter(Statistic == 'variance') %>%
   separate(Variable, into = 'Variable_Group', sep = '_', remove = F, extra = 'drop') %>% 
-  ggplot(., aes(x = reorder(Variable,-Val_scaled), y = Val_scaled, 
+  ggplot(., aes(x = reorder(Variable,-Val_scaled), y = Val_scaled, s
                 fill = Variable_Group)) + # color = variable_Group
   geom_bar(stat ="identity") +
   scale_fill_discrete(name = "Variable Group", 
@@ -221,7 +224,7 @@ sum_stats %>% filter(Statistic == 'variance') %>%
        title = "Variance of 16 Predictors from Raster Stack") +
   theme(plot.title = element_text(hjust = 0.5), 
         legend.position = c(0.8, 0.7))
-
+dev.off()
 ```
 
 While there is a drastic range in the variance of these predictors, I do not remove features here such as Soil Class, which I anticipate to have very high correlations with occurrence records for building models. 

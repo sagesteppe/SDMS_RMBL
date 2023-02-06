@@ -1,7 +1,7 @@
 ---
-title: "evaluate_SDMs"
-author: "steppe"
-date: "3/13/2022"
+title: ""
+author: NULL
+date: NULL
 output:
   pdf_document:
     fig_caption: yes
@@ -9,9 +9,15 @@ output:
     includes:
       in_header: float_free.tex
   word_document: default
-
 ---
 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(dpi = 300) 
+knitr::opts_chunk$set(message = F)
+knitr::opts_chunk$set(warning = F)
+```
 
 ```{r}
 library(tidyverse)
@@ -31,7 +37,7 @@ times <- files %>%
          Date = as.POSIXct(Date, format = "%Y-%m-%d_%H:%M:%OS"),
          Cols = if_else(Model == 'ml', 'aquamarine3', 'hotpink3'))
 
-plot(times$Date, times$Date , cex = 0.9 ,xaxt = "n", col = times$Cols )
+# plot(times$Date, times$Date , cex = 0.9 ,xaxt = "n", col = times$Cols )
 
 times_ml <- filter(times, Model == 'ml')
 times_ml <- times_ml[order(times_ml$Date, decreasing = F),]
@@ -127,28 +133,38 @@ rm(times_ml_model, times_lm_model, occ_per_sp_lm, occ_per_spp_ml,
 
 ```{r Time Spent producing Linear Models}
 
-lm_time_trials %>% 
+lm_hrs <- lm_time_trials %>% 
   distinct(fname, .keep_all = T) %>% 
   summarize(Hours = sum(seconds)/3600)
-
-ggplot(lm_time_trials, aes(y = seconds, x = Converged_Models)) +
-  geom_jitter()
 
 m_interactive <- glm(seconds ~ Converged_Models * no_record, family = poisson, data = lm_time_trials)
 m_additive <- glm(seconds ~ Converged_Models + no_record, family = poisson, data = lm_time_trials)
 m_converge <- glm(seconds ~ Converged_Models, family = poisson, data = lm_time_trials)
 
 
-aictab(cand.set = list(m_interactive, m_additive, m_converge),
-       modnames = c('interactive', 'additive', 'converge'))
+#aictab(cand.set = list(m_interactive, m_additive, m_converge),
+#       modnames = c('interactive', 'additive', 'converge'))
 
-ggplot(lm_time_trials, aes(y = seconds, x = Converged_Models)) +
-  geom_jitter(shape=21, alpha = 0.5, aes(fill = no_record)) +
-  geom_smooth(method = stats::glm, se = T,  formula = y ~ x,
-        method.args = list(family = "poisson")) +
-  
- # scale_fill_gradient2(low="blue", mid="white", high="red", 
-#                        limits = c(100, 1200), oob = scales::squish)
+
+p1 <- ggplot(lm_time_trials, aes(y = seconds/60, x = Converged_Models)) +
+  geom_jitter(shape=21, alpha = 0.6, aes(size = no_record, fill = no_record), 
+              width = 0.4, height = 0.1) +
+  scale_size_area(name = 'No. Occurrences:', max_size = 5, breaks = c(300, 600, 900)) +
+  scale_fill_gradient(name = 'No. Occurrences:',  high = "#b5179e", low = "#3f37c9", 
+                       breaks = c(300, 600, 900)) +
+  labs(title = 'Linear Models', 
+       y = 'Minutes',
+       x = '') +
+  guides(fill=guide_legend(), size = guide_legend()) +
+  scale_y_continuous(breaks = c(30,60,90), limits = c(10,100)) +
+  scale_x_continuous(limits = c(2,6)) +
+  theme_bw() +
+  theme(legend.position="bottom", legend.box = 'vertical',
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size=9),
+        legend.text = element_text(size=8),
+        plot.title = element_text(hjust = 0.5, size = 12),
+        legend.spacing.x = unit(0.01, 'cm'))
 
 rm(m_interactive, m_additive, m_converge)
 ```
@@ -156,35 +172,55 @@ rm(m_interactive, m_additive, m_converge)
 ```{r Time Spent producing Machine Learning Models}
 #hist(ml_time_trials$seconds)
 
-ml_time_trials %>% 
+ml_hours <- ml_time_trials %>% 
   distinct(fname, .keep_all = T) %>% 
   summarize(Hours = sum(seconds)/3600)
-
 
 m_interactive <- glm(seconds ~ Converged_Models * no_record, family = poisson, data = ml_time_trials)
 m_additive <- glm(seconds ~ Converged_Models + no_record, family = poisson, data = ml_time_trials)
 m_converge <- glm(seconds ~ Converged_Models, family = poisson, data = ml_time_trials)
 
-aictab(cand.set = list(m_interactive, m_additive, m_converge),
-       modnames = c('interactive', 'additive', 'converge'))
+#aictab(cand.set = list(m_interactive, m_additive, m_converge),
+#       modnames = c('interactive', 'additive', 'converge'))
 
-ggplot(ml_time_trials, aes(y = seconds, x = Converged_Models)) +
-  geom_jitter(shape=21, alpha = 0.5, aes(fill = no_record)) +
-  geom_smooth(method = stats::glm, se = T,  formula = y ~ x,
-        method.args = list(family = "poisson"))
+p2 <- ggplot(ml_time_trials, aes(y = seconds/60, x = Converged_Models)) +
+  geom_jitter(shape=21, alpha = 0.6, aes(size = no_record, fill = no_record), 
+              width = 0.4, height = 0.1) +
+  scale_size_area(name = 'No. Occurrences:', max_size = 5, breaks = c(300, 600, 900)) +
+  scale_fill_gradient(name = 'No. Occurrences:',  low = "#52b788", high = "#1b4332", 
+                      breaks = c(300, 600, 900)) +
+  labs(title = 'Machine Learning',
+       y = 'Minutes', x = 'Number of Models Converged') +
+  guides(fill=guide_legend(), size = guide_legend()) +
+  scale_x_continuous(limits = c(2,6)) +
+  scale_y_continuous(breaks = c(30,60,90), limits = c(10,100), 
+                     position = "right") +
+  theme_bw() +
+  theme(legend.position="bottom",
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size=9),
+        axis.title.x = element_text(hjust = -1.8),
+        legend.text = element_text(size=8),
+        plot.title = element_text(hjust = 0.5, size = 12),
+        legend.spacing.x = unit(0.01, 'cm'))
+
 
 rm(m_interactive, m_additive, m_converge)
-
-( (48059.07 - 47743.90) / (47743.90) ) * 100
-options(scipen = 999)
 ```
 
 
 
-### Relationship between number of records and individual model run diagnostics
+```{r warning = F, caption = 'Relationship between number of records and individual model run diagnostics'}
+library(patchwork)
+p1 + p2 + 
+  plot_annotation(title = 'Time Spent Fitting and Projecting Models onto Gridded Surfaces')
+
+```
 
 
-```{r, warning = F}
+Collectively it took `r round(lm_hrs, 0)` hours for all of the GLM and GAM to run, and for the converged models to be ensembled, and predicted onto a raster surface; it took `r round(ml_hours)` hours for the same process to be carried out for the Random Forest and Boosted Regression Tree models. 
+
+```{r, warning = F, caption = "Input Metrics of each Converged Model before final ensembles"}
 
 initial_scores_lm <- left_join(lm_models, 
                                select(lm_time_trials, fname, no_record),
@@ -195,19 +231,20 @@ initial_scores_ml <- left_join(ml_models,
 
 par(mfrow = c(1,2))
 scatterplot3d::scatterplot3d(initial_scores_lm[,c('AUC', 'Kappa', 'TSS')], 
-                             cex.axis = 0.6, angle = 55, ylab = "",
-                             main = '    GLM & GAM', color = '#861094',
+                             cex.axis = 0.6,  ylab = "",
+                             main = '        Linear Models', color = alpha('#b5179e', 0.25),
                              xlim = c(0.6,1), ylim = c(0.2,1), zlim = c(0.2,1))
 scatterplot3d::scatterplot3d(initial_scores_ml[,c('AUC', 'Kappa', 'TSS')], 
-                             cex.axis = 0.6, angle = 55, zlab = "",
-                             main = '    RF & BRT', color= '#1E9510',
+                             cex.axis = 0.6, zlab = "",
+                             main = '        Machine Learning', color= alpha('#1b4332', 0.25),
                              xlim = c(0.6, 1), ylim = c(0.2,1), zlim = c(0.2,1))
 
 rm(initial_scores_lm, initial_scores_ml)
 ```
 
+Results for each converged individual model which were then ensembled, using weights from the True Skill Statistic (TSS). 
 
 ```{r}
-rm(in)
+
 ```
 
