@@ -212,9 +212,11 @@ rm(m_interactive, m_additive, m_converge)
 
 ```{r warning = F, caption = 'Relationship between number of records and individual model run diagnostics'}
 library(patchwork)
-p1 + p2 + 
+
+top <- p1 + p2 + 
   plot_annotation(title = 'Time Spent Fitting and Projecting Models onto Gridded Surfaces')
 
+#ggsave(top, path = '../results/plots', filename = 'time_spent.png', device = 'png')
 ```
 
 
@@ -229,6 +231,7 @@ initial_scores_ml <- left_join(ml_models,
                                select(ml_time_trials, fname, no_record), 
                                by = "fname")
 
+#png(filename = "../results/plots/evaluation.png", width = 480, height = 480, units = "px")
 par(mfrow = c(1,2))
 scatterplot3d::scatterplot3d(initial_scores_lm[,c('AUC', 'Kappa', 'TSS')], 
                              cex.axis = 0.6,  ylab = "",
@@ -238,6 +241,7 @@ scatterplot3d::scatterplot3d(initial_scores_ml[,c('AUC', 'Kappa', 'TSS')],
                              cex.axis = 0.6, zlab = "",
                              main = '        Machine Learning', color= alpha('#1b4332', 0.25),
                              xlim = c(0.6, 1), ylim = c(0.2,1), zlim = c(0.2,1))
+#dev.off()
 
 rm(initial_scores_lm, initial_scores_ml)
 ```

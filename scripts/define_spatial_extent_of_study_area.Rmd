@@ -101,8 +101,14 @@ ggmap(co_map) +
   theme(plot.title = element_text(hjust = 0.5))
 dev.off()
 
+```
+
+```{r make quick besseya alpina map for presentation}
+
+
 
 ```
+
 
 
 ```{r}

@@ -52,34 +52,7 @@ ggplot() +
   geom_sf(data = rmbl, fill = NA, color = 'black', lwd = 1, lty = 5)
 
 rm(poly_coords, poly100, poly100_bb)
-```
-
-```{r intersect field station to ecoregion, warning = F}
-adj_L4 <- st_intersection(rmbl, ecoregions) %>% 
-  distinct(US_L4NAME, .keep_all = T) %>% 
-  pull(US_L4CODE)
-ecoregions_subalp <- ecoregions %>% 
-  filter(US_L4CODE %in% adj_L4) %>% 
-  dplyr::select(US_L4CODE, US_L4NAME)
-
-spp_occurrences_full1 <- st_transform(spp_occurrences_full1, st_crs(ecoregions_subalp))
-spp_target_ecoregions <- st_intersection(spp_occurrences_full1, ecoregions_subalp) %>% 
-  rename('Species' = scrbb__,
-         'Date' = dt_cllc) %>% 
-  drop_na(Date)
-
-ggplot() +
-  geom_sf(data = ecoregions_subalp, aes(fill = US_L4NAME)) +
-  geom_sf(data = rmbl, fill = NA, color = 'black', lwd = 1, lty = 5) 
-
-spp_occurrences_phen <- st_transform(spp_occurrences_phen, st_crs(ecoregions_subalp))
-spp_target_ecoregions_phen <- st_intersection(spp_occurrences_phen, ecoregions_subalp) %>% 
-  rename('Species' = scrbb__,
-         'Date' = dt_cllc) %>% 
-  drop_na(Date)
-
-rm(poly100_t_dist, ecoregions_subalp, poly100_bb, adj_L4)
-```
+``` 
 
 
 ```{r calculate common snow free dates, warning = F}

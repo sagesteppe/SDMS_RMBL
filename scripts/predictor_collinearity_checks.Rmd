@@ -211,7 +211,7 @@ sum_stats <- sum_stats %>%
 png(filename = '../results/plots/variation.png', bg = 'transparent', width = 720, height = 720)
 sum_stats %>% filter(Statistic == 'variance') %>%
   separate(Variable, into = 'Variable_Group', sep = '_', remove = F, extra = 'drop') %>% 
-  ggplot(., aes(x = reorder(Variable,-Val_scaled), y = Val_scaled, s
+  ggplot(., aes(x = reorder(Variable,-Val_scaled), y = Val_scaled, 
                 fill = Variable_Group)) + # color = variable_Group
   geom_bar(stat ="identity") +
   scale_fill_discrete(name = "Variable Group", 

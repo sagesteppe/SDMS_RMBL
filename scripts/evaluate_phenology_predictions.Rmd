@@ -14,7 +14,8 @@ source(here::here('scripts/phen_functions.R'))
 library(tidyverse) #data tidying
 ```
 
-We can only test the accuracy of the Weibull method on a subset of cerca 60 species we have created estimates for. An interesting component of the Weibull development paper is that the authors did not actually attempt to estimate phenological events using herbarium records and then test them using the RMBL data set, but rather used the same testing and training data set? (wtf this cannot be right must check paper).
+We can only test the accuracy of the Weibull method on a subset of cerca 60 species we have created estimates for. 
+An interesting component of the Weibull development paper is that the authors did not actually attempt to estimate phenological events using herbarium records and then test them using the RMBL data set, but rather used the same testing and training data set? 
 
 While the National Phenology Network, and NEON both collect data sets on the timing of life history events, both seem to focus on taxa in dominant physiognomic classes such as trees. These data unfortunately do not contain information that I find useful.
 
@@ -31,13 +32,15 @@ weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_p
 
 weibull_estimates <- read.csv(paste0(here(),'/data/processed/weibull_estimates_mixed_montane.csv')) %>% 
   mutate('Estimate' = 'Weibull-Montane') %>% 
-  bind_rows(., weibull_estimates)
+  bind_rows(., weibull_estimates) %>% 
+  mutate(taxon = if_else(taxon == 'Arenaria congesta', 'Eremogone congesta', taxon))
 
 groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDonna2014.csv')) %>% 
   dplyr::select(1:2,7:10) %>% 
   filter(species != 'Eriogonum subalpinum') %>%  # this var. majus of the E. umbellatum complex - E. umbellatum already
-  # present this cannot be kept as indepedent whence relegated to synonymy under the BIEN schema
+  # present this cannot be kept as independent whence relegated to synonymy under the BIEN schema
   mutate(species = case_when(
+    species == 'Arenaria congesta' ~ 'Eremogone congesta', 
     species == 'Amerosedum lanceolatum' ~ 'Sedum lanceolatum',
     species == 'Ligularia bigelovii' ~ 'Senecio bigelovii', 
     species == 'Dugaldia hoopesii' ~ 'Hymenoxys hoopesii',
@@ -48,7 +51,7 @@ groundTruth <- read.csv(paste0(here(),'/data/processed/rmbl_oberved_pheno_CaraDo
     species == 'Descurainia richardsonii' ~ 'Descurainia incana',
     species == 'Lupinus sericeaus' ~ 'Lupinus sericeus',
     species == 'Sedum rosea' ~ 'Rhodiola integrifolia', # this challenging unable to find how
-    # this name was missaplied  to this material
+    # this name was misapplied  to this material
     species == 'Taraxacum officionale' ~ 'Taraxacum officinale',
     species == 'Pedicularis bracteoasa' ~ 'Pedicularis bracteosa', 
     TRUE ~ species
@@ -90,8 +93,6 @@ groundTruth <- groundTruth %>%
   mutate(Type = 'Observed', sample_size = 0) %>% 
   rename_with(~paste0(.,"_obs"), c(-species, -metric))
 
-spp_needed <- anti_join(groundTruth, weibull_estimates, by = c('species' = 'taxon')) %>% 
-  distinct(species)
 rm(spp_needed)
 ```
 
@@ -108,7 +109,6 @@ ecoregions <- read_sf(here("data/raw/us_eco_l4/us_eco_l4_no_st.shp"), quiet = T)
   st_union() %>% 
   st_transform(5070)
 
-spp_needed[9,1] <- 'Lupinus sericeus'
 species <- spp_needed %>% pull(species) # Log reg predicted species
 ecoregion_bound <- st_as_sf(ecoregion_bound)
 ecoregion_bound <- st_transform(ecoregion_bound, 4326)
@@ -137,7 +137,6 @@ fname <- paste0('BIEN_occ_rec_PHEN', Sys.Date(), '.shp')
 st_write(spp_occurrences1, here("data/raw", fname), append = F)
 rm(spp_occurrences, spp_occurrences1, eco_bound_bbox, fname)
 ```
-
 
 - R NOTE: Looks like we want to be able to produce a plot which ALSO contains the lower and upper confidence estimates. 
 ```{r Prepare Confidence Intervals for plotting}
@@ -170,8 +169,7 @@ rm(list = lsf.str())
 
 # Run Analysis
 
-
-NOTE WOULD BE NICE TO HAVE A WAY TO QUANTIZE RESIDUALS ALA RMSE - BUT VARIABLES ARE NOT INDEPENDENT ; BOTH ARE PRODUCTS OF THE AXES OF THE SAME UNANALYZED INDEPDENENT VARIABLES. IT APPEARS THERE IS NO METHOD FOR DISPLAYING THE FIT OF CORRELATION TEST/RESULTS... HMMM
+all we can do is kendalls tau
 
 ```{r Correlation Testing, warning = F}
 
@@ -189,40 +187,99 @@ rd_dur <- regression_data %>%
   filter(metric == 'Duration')
 
 # START
-summary( start_lm <- lm(rd_start$DOY_est ~ rd_start$DOY_obs + rd_start$sample_size_est) )
+summary( start_lm <- lm(rd_start$DOY_est ~ rd_start$DOY_obs) )
 print( start_lm_rmse <- sqrt(mean((rd_start$DOY_obs - rd_start$DOY_est)^2)) / 
          (max(rd_start$DOY_obs) - min(rd_start$DOY_est)) )
 start_kt <- cor.test(rd_start$DOY_est, rd_start$DOY_obs, method="kendall")
-summary(start_lm)$adj.r.squared
-
 
 # PEAK
-summary( peak_lm <- lm(rd_peak$DOY_est ~ rd_peak$DOY_obs + rd_start$sample_size_est) )
+summary( peak_lm <- lm(rd_peak$DOY_est ~ rd_peak$DOY_obs) )
 print( peak_lm_rmse <- sqrt(mean((rd_peak$DOY_obs - rd_peak$DOY_est)^2)) / 
          (max(rd_peak$DOY_obs) - min(rd_peak$DOY_est)) )
 peak_kt <- cor.test(rd_peak$DOY_est, rd_peak$DOY_obs, method="kendall")
-summary(peak_lm)$adj.r.squared
-summary(peak_lm)
 
 # END
-summary( last_lm <- lm(rd_last$DOY_est ~ rd_last$DOY_obs + rd_start$sample_size_est) )
+summary( last_lm <- lm(rd_last$DOY_est ~ rd_last$DOY_obs) )
 print( last_lm_rmse <- sqrt(mean((rd_last$DOY_obs - rd_last$DOY_est)^2)) / 
          (max(rd_last$DOY_obs) - min(rd_last$DOY_est)) )
 end_kt <- cor.test(rd_last$DOY_est, rd_last$DOY_obs, method="kendall")
-summary(last_lm)$adj.r.squared
 
 # DURATION
-summary( duration_lm <- lm(rd_dur$DOY_est ~ rd_dur$DOY_obs + rd_start$sample_size_est ) )
+summary( duration_lm <- lm(rd_dur$DOY_est ~ rd_dur$DOY_obs ) )
 print( dur_lm_rmse <- sqrt(mean((rd_dur$DOY_obs - rd_dur$DOY_est)^2)) / 
          (max(rd_dur$DOY_obs) - min(rd_dur$DOY_est)) )
 dur_kt <- cor.test(rd_dur$DOY_est, rd_dur$DOY_obs, method="kendall")
-summary(duration_lm)$adj.r.squared
 
-rm(regression_data, weibull_estimates, ci)
+regression_data %>% 
+  distinct(species, .keep_all = T) %>%
+  summarize(med = median(sample_size_est),
+            mean = round(mean(sample_size_est), 1))
+
+rm(regression_data, weibull_estimates)
 ```
 
-```{r Plot Correlation, warning = F}
 
+```{r Repeat process to compare first last and mid point of flowering }
+
+jeo_groundtruth <- read.csv(paste0(here(),'/data/processed/Bombus_flower_ranks_2015.csv')) %>% 
+  select(site, doy, week, tot.obs.length, habitat, plant.species:abun.rank) %>% 
+  group_by(plant.species) %>% 
+  arrange(doy) %>% 
+  slice(1, n()) %>% 
+  select(species = plant.species,  DOY_obs = doy) %>% 
+  mutate(
+    metric = rep(c('First', 'Last'), times = 1),
+    species = str_replace_all(species, '[.]', " "),
+    species = case_when(
+      species == 'Adenolinum lewisii' ~ 'Linum lewisii', 
+      species == 'Amerosedum lanceolatum' ~ 'Sedum lanceolatum',
+      species == 'Ligularia bigelovii' ~ 'Senecio bigelovii', 
+      species == 'Dugaldia hoopesii' ~ 'Hymenoxys hoopesii',
+      species == 'Erysimum asperum' ~ 'Erysimum capitatum', # this misapplied
+      species == 'Amelanchier pumila' ~ 'Amelanchier alnifolia',
+      species == 'Ligusticum porterii' ~ 'Ligusticum porteri', 
+      species == 'Noccaea montana' ~ 'Noccaea fendleri',
+      species == 'Descurainia richardsonii' ~ 'Descurainia incana',
+      species == 'Lupinus sericeaus' ~ 'Lupinus sericeus',
+      species == 'Taraxacum officionale' ~ 'Taraxacum officinale',
+      species == 'Pedicularis bracteoasa' ~ 'Pedicularis bracteosa', 
+      TRUE ~ species
+    )) %>% 
+  filter(! species %in% c('Salix sp', 'Carex sp', 'Epilobium sp', 'Eriogonum subalpinum'))
+
+jeo_groundtruth <- jeo_groundtruth %>% 
+  inner_join(., select( weibull_estimates_test, DOY_est, metric, sample_size_est) ,
+            by = c('species' = 'taxon', 'metric')) %>% 
+  left_join(., ci, by = c('species' = 'taxon', 'metric'))
+
+jeo_start <- filter(jeo_groundtruth, metric == 'First')
+jeo_last <- filter(jeo_groundtruth, metric == 'Last')
+
+# How many of the species are repeated between the JEO dataset and long term dataset ?
+lt_species <-  distinct(groundTruth, species) %>% 
+           pull()
+
+jeo_start %>% # 47 of the 47 species are repeated... 
+  filter(species %in% lt_species)
+
+summary( start_lm_jeo <- lm(jeo_start$DOY_est ~ jeo_start$DOY_obs) )
+print( start_lm_rmse_jeo <- sqrt(mean((jeo_start$DOY_obs - jeo_start$DOY_est)^2)) / 
+         (max(jeo_start$DOY_obs) - min(jeo_start$DOY_est)) )
+start_kt_jeo <- cor.test(jeo_start$DOY_est, jeo_start$DOY_obs, method="kendall")
+
+summary( last_lm_jeo <- lm(jeo_last$DOY_est ~ jeo_last$DOY_obs) )
+print( last_lm_rmse_jeo <- sqrt(mean((jeo_last$DOY_obs - jeo_last$DOY_est)^2)) / 
+         (max(jeo_last$DOY_obs) - min(jeo_last$DOY_est)) )
+end_kt_jeo <- cor.test(jeo_last$DOY_est, jeo_last$DOY_obs, method="kendall")
+
+# The survey finished before field season did. we will predict the values for the 
+# trend line onto a new dataframe for plotting
+
+rm(ci)
+```
+
+
+```{r Plot Correlation, warning = F}
 
 png(file = paste0(here(), '/results/plots/phenology_estimates_10_90.png'), 
     width = 6, height = 6, pointsize = 4, units = 'cm', res = 300)
@@ -237,8 +294,6 @@ plotCI(x = rd_start$DOY_obs,  rd_start$DOY_est,
        xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
 axis(1)
 axis(2)
-text(148, 214, expression("adj. r"^2*" = " ))
-text(162, 214, paste0(round(summary(start_lm)$adj.r.squared, 3)))
 text(155, 208, paste0("tau = ", round(start_kt[["estimate"]][["tau"]], 3)))
 text(155, 202, "p < 0.001")
 abline(start_lm)
@@ -252,8 +307,6 @@ plotCI(x = rd_peak$DOY_obs,  rd_peak$DOY_est,
        xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
 axis(1)
 axis(2)
-text(168, 234, expression("adj. r"^2*" = " ))
-text(182, 234, paste0(round(summary(peak_lm)$adj.r.squared, 3)))
 text(175, 228, paste0("tau = ", round(peak_kt[["estimate"]][["tau"]], 3)))
 text(175, 222, "p < 0.001")
 abline(peak_lm)
@@ -266,8 +319,6 @@ plotCI(x = rd_last$DOY_obs,  rd_last$DOY_est,
        xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
 axis(1)
 axis(2)
-text(228, 179, expression("adj. r"^2*" = " ))
-text(242, 179, paste0(round(summary(last_lm)$adj.r.squared, 3)))
 text(235, 174, paste0("tau = ", round(end_kt[["estimate"]][["tau"]], 3)))
 text(235, 168, "p < 0.001")
 abline(last_lm)
@@ -280,18 +331,49 @@ plotCI(x = rd_dur$DOY_obs,  rd_dur$DOY_est,
        xlab = "Observed (Days)", ylab = "Estimated (Days)")
 axis(1)
 axis(2)
-text(70, 26, expression("adj. r"^2*" = " ))
-text(83, 26, paste0(round(summary(duration_lm)$adj.r.squared, 3)))
 text(75, 21, paste0("tau = ", round(dur_kt[["estimate"]][["tau"]], 3)))
 text(75, 16, paste0("p = ", round(dur_kt[["p.value"]], 3)))
 abline(duration_lm)
-
 dev.off()
 
+
+# now repeat for the jane data
+
+png(file = paste0(here(), '/results/plots/phenology_estimates-jeo_10_90.png'), 
+    width = 6, height = 3, pointsize = 4, units = 'cm', res = 300)
+par(pty="s", mgp=c(2,1,0),  mfrow = c(1,2), mar = c(3,3,2,2))
+plotCI(x = jeo_start$DOY_obs,  jeo_start$DOY_est,
+       li = jeo_start$DOY_low, ui = jeo_start$DOY_high, 
+       pch=20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
+       xlim = c(140,220), ylim = c(140,220), axes = F,
+       main = "First Flower Date",
+       xlab = "Observed (DOY)", ylab = "Estimated (DOY)") 
+axis(1)
+axis(2)
+text(155, 208, paste0("tau = ", round(start_kt_jeo[["estimate"]][["tau"]], 3)))
+text(155, 202, "p < 0.001")
+abline(start_lm_jeo)
+
+plotCI(x = jeo_last$DOY_obs,  jeo_last$DOY_est,
+       li = jeo_last$DOY_low, ui = jeo_last$DOY_high,
+       pch = 20, slty = 3, gap = 0.025, scol = 'grey70', sfrac = 0.0, col = 'grey15',
+       xlim = c(160,250), ylim = c(160,250), axes = F,
+       main = "Last Flower Date",
+       xlab = "Observed (DOY)", ylab = "Estimated (DOY)")
+axis(1)
+axis(2)
+text(235, 174, paste0("tau = ", round(end_kt_jeo[["estimate"]][["tau"]], 3)))
+text(235, 168, "p < 0.001")
+abline(last_lm_jeo)
+dev.off()
+
+
 rm(rd_start, rd_peak, rd_last, rd_dur, groundTruth, weibull_estimates_test,
-   duration_lm, end_lm, last_lm, peak_lm, start_lm,
-   dur_lm_rmse, last_lm_rmse, peak_lm_rmse, start_lm_rmse,
-   dur_kt, end_kt, last_kt, peak_kt, start_kt)
+   duration_lm, end_lm, last_lm, peak_lm, start_lm, end_kt_jeo, jeo_last, jeo_start,
+   dur_lm_rmse, last_lm_rmse, peak_lm_rmse, start_lm_rmse, last_lm_jeo, start_kt_jeo, 
+   dur_kt, end_kt, last_kt, peak_kt, start_kt, start_lm_jeo, jeo_groundtruth,
+   last_lm_rmse_jeo, start_lm_rmse_jeo
+)
 ```
 
 

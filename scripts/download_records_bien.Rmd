@@ -367,10 +367,11 @@ target_spp <- read.csv(paste0(here(), '/data/processed/target_spp_synonyms.csv')
 
 
 ```{r Append presence absence to each museum record species}
+
 target_spp <- target_spp %>% 
   dplyr::select(Group:Node.1, Species, scientificName) %>% 
-  mutate(occurrence = if_else(.$scientificName %in% rmbl_spp$scientificName, 1, 0)) %>% 
-  na_if("") %>% 
+  mutate(occurrence = if_else(scientificName %in% rmbl_spp$scientificName, 1, 0)) %>% 
+  mutate(Node.1 = na_if(Node.1, "")) %>%  
   mutate(Node.1 = replace_na(Node.1, 'Vascular')) %>% 
   mutate('PrtyFlrs' = case_when(
     Group != 'angiosperms' ~ 0,
@@ -535,6 +536,8 @@ ggplot(newdata3, aes(x = distances, y = PredictedProb)) +
   theme(plot.title = element_text(hjust = 0.5)) +
   ylim(0,1) 
 
+ggsave('../results/plots/Occurrence_distance.png')
+
 rm(newdata1, newdata2, allspecies_log, test, train, newdata3)
 ```
 
@@ -640,6 +643,14 @@ prop.test(x = # relationship significant for the tail of the distribution,
 
 rm(prDF, half2quarter, closest_records, coin_flip, slim, L4, adj_L4, testing_data)
 ```
+
+
+Count the number of species which we removed via this process
+```{r}
+filter(closest_records, ! scrubbed_species_binomial %in% kept_recs$scrubbed_species_binomial) 
+```
+
+795 species. 
 
 write out results to csv, these results will all have SDM's generated of them.
 
